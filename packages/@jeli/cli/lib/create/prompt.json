@@ -1,0 +1,77 @@
+{
+    "overrideDirectory": [{
+        "name": "ok",
+        "type": "confirm",
+        "message": "Generate project in current directory?"
+    }],
+    "projectType": [{
+        "name": "variant",
+        "type": "list",
+        "message": "Select a project type:",
+        "choices": ["application", "library"]
+    }],
+    "main": [{
+            "name": "description",
+            "type": "input",
+            "message": "Enter project description:",
+            "default": ""
+        },
+        {
+            "name": "author",
+            "type": "input",
+            "message": "Enter name of author:",
+            "default": ""
+        },
+        {
+            "name": "version",
+            "type": "input",
+            "message": "Enter version number",
+            "default": "1.0.0"
+        },
+        {
+            "name": "license",
+            "type": "input",
+            "message": "Enter your license type:",
+            "default": "MIT"
+        },
+        {
+            "name": "doc",
+            "type": "list",
+            "message": "Use esdoc generator:",
+            "default": false,
+            "choices": [
+                { "name": "yes", "value": true },
+                { "name": "no", "value": false }
+            ]
+        },
+        {
+            "name": "prefix",
+            "type": "input",
+            "message": "enter application prefix:",
+            "default": "app"
+        }
+    ],
+    "application": [{
+        "name": "router",
+        "type": "list",
+        "message": "use jeli router",
+        "default": false,
+        "choices": [
+            { "name": "yes", "value": true },
+            { "name": "no", "value": false }
+        ]
+    }, {
+        "name": "style",
+        "type": "list",
+        "message": "Select cssProcessor:",
+        "default": "css",
+        "choices": ["css", "sass"]
+    }],
+    "packageManager": [{
+        "name": "packagemanager",
+        "type": "list",
+        "message": "select a packageManager:",
+        "default": "npm",
+        "choices": []
+    }]
+}

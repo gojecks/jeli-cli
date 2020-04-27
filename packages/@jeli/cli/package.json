@@ -1,0 +1,45 @@
+{
+    "name": "@jeli/cli",
+    "version": "0.0.1",
+    "description": "Command line interface for jeli-js",
+    "scripts": {
+        "test": "mocha --reporter spec"
+    },
+    "keywords": [
+        "jeli-js",
+        "jeli-cli",
+        "jeli"
+    ],
+    "author": "Gojecks",
+    "license": "MIT",
+    "dependencies": {
+        "atob": "^2.0.3",
+        "body-parser": "^1.18.2",
+        "btoa": "^1.1.2",
+        "clear": "0.0.1",
+        "clui": "^0.3.6",
+        "figlet": "^1.2.0",
+        "inquirer": "^4.0.1",
+        "lodash": "^4.17.4",
+        "minimist": "^1.2.0",
+        "preferences": "^1.0.2",
+        "touch": "^3.1.0",
+        "jsonfile": "^3.0.0",
+        "fs-extra": "~2.0.0",
+        "leven": "^3.1.0",
+        "semver": "^7.2.2",
+        "validate-npm-package-name": "^3.0.0",
+        "commander": "^2.20.3",
+        "shelljs": "0.8.3",
+        "envinfo": "^7.5.0",
+        "execa": "^4.0.0",
+        "@jeli/cli-dev": "0.0.1",
+        "@jeli/cli-utils": "0.0.1"
+    },
+    "bin": {
+        "jeli": "bin/index.js"
+    },
+    "engines": {
+        "node": ">=8.9"
+    }
+}

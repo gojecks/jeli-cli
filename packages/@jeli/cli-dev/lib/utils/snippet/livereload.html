@@ -1,0 +1,41 @@
+<!-- 
+    LiveReload client snippet
+    Powered by jeli-dev-server 
+-->
+<script type="text/javascript">
+  if ('WebSocket' in window) {
+    (function() {
+      'use strict';
+      var protocol = window.location.protocol === 'http:' ? 'ws://' : 'wss://';
+      var address = protocol + window.location.host + window.location.pathname + '/ws';
+      var socket = new WebSocket(address);
+      socket.onmessage = function(msg) {
+        switch (msg.data.toUpperCase()) {
+          case ('RELOAD'):
+            window.location.reload();
+            break;
+          case ('COMPILING'):
+            console.log('jws -> compiling...');
+            break;
+          case ('ERROR'):
+            createErrorWindow();
+            break;
+        }
+      };
+      console.log('Live reload enabled.');
+
+      function createErrorWindow() {
+        var modal = document.createElement('div');
+        modal.style.width = "100%";
+        modal.style.height = "100%";
+        modal.style.background = "#000";
+        modal.style.opacity = ".8";
+        modal.style.left = "0px";
+        modal.style.position = "fixed";
+        modal.style.top = "0px";
+        document.body.appendChild(modal);
+        modal.innerHTML = '<h2 style="color:red;padding:5%">Error in compilation</h2>';
+      }
+    })();
+  }
+</script>

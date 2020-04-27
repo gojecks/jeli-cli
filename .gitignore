@@ -1,0 +1,6 @@
+node_modules/
+*-lock.json
+packages/@jeli/**/dist
+*.lock
+packages/@jeli/compiler/lib/core/html-parser
+test/
