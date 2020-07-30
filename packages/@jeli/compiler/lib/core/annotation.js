@@ -1,6 +1,14 @@
 const helper = require('@jeli/cli-utils');
 const { escogen, parseAst } = require('./ast.generator');
 const { isExportedToken, findTokenInGlobalImports } = require('./compilerobject');
+const { parseQuery } = require('./query_selector');
+const AnnotationsEnum = {
+    SERVICES: 'SERVICES',
+    REQUIREDMODULES: 'REQUIREDMODULES',
+    SELECTORS: 'SELECTORS',
+    EXPORTS: 'EXPORTS',
+    ROOTELEMENT: 'ROOTELEMENT'
+};
 
 /**
  * 
@@ -42,10 +50,11 @@ module.exports = function(ast, filePath, loader, compilerObject) {
         helper.console.error(compilerError.join('\n'));
         helper.abort();
     } else {
-        compilerObject.output.push({
+        compilerObject.output.global.push({
             fn,
             type: ast.type,
-            annotations
+            annotations,
+            filePath
         });
     }
 
@@ -63,24 +72,25 @@ module.exports = function(ast, filePath, loader, compilerObject) {
          * @param {*} type 
          */
         function _validate(type) {
-            switch (type.toLowerCase()) {
-                case ('services'):
+            switch (type.toUpperCase()) {
+                case (AnnotationsEnum.SERVICES):
                     _validateService();
                     break;
-                case ('requiredmodules'):
+                case (AnnotationsEnum.REQUIREDMODULES):
                     _validateRequiredModules();
                     break;
-                case ('selectors'):
+                case (AnnotationsEnum.SELECTORS):
                     _validateSelectors();
                     break;
-                case ('exports'):
+                case (AnnotationsEnum.EXPORTS):
                     _validateExports();
                     break;
-                case ('rootElement'):
+                case (AnnotationsEnum.ROOTELEMENT):
                     _validateRootElement();
                     break;
                 default:
-                    helper.abort(`unsupported Module definition<${type}>`);
+                    loader.spinner.fail(`\nunsupported Module definition<${helper.colors.yellow(type)}> defined in ${helper.colors.yellow(filePath)}`);
+                    helper.abort();
                     break;
             }
         }
@@ -109,14 +119,14 @@ module.exports = function(ast, filePath, loader, compilerObject) {
             moduleObj.requiredModules.forEach(reqModule => {
                 const module = getExportedModule(reqModule, compilerObject);
                 if (!module) {
-                    compilerError.push(`required module {${helper.colors.yellow(reqModule)}} -> {${helper.colors.yellow(fnName)}} was not found, please import the module. \n help: "${helper.colors.yellow("import {" +reqModule+"} from 'REQUIRED_PATH';")}"\n`);
+                    compilerError.push(`required module {${helper.colors.yellow(reqModule)}} -> {${helper.colors.yellow(fnName)}} was not found, please import the module. \n help: "${helper.colors.green("import {" +reqModule+"} from 'REQUIRED_PATH';")}"\n`);
                 }
 
                 /**
                  * check for circular requiredModules
                  */
                 if (module && module.requiredModules && module.requiredModules.includes(fnName)) {
-                    compilerError.push(`Circular referrence found:  ${reqModule} -> ${fnName} -> ${reqModule}`);
+                    compilerError.push(`Circular referrence found:  ${helper.colors.yellow(reqModule)} -> ${helper.colors.yellow(fnName)} -> ${helper.colors.yellow(reqModule)}`);
                 }
             });
         }
@@ -128,7 +138,8 @@ module.exports = function(ast, filePath, loader, compilerObject) {
             moduleObj.selectors.forEach(elementFn => {
                 const element = compilerObject.Directive[elementFn] || compilerObject.Element[elementFn];
                 if (!element) {
-                    compilerError.push(`${elementFn} is register in ${fnName} module but implementation does not exists.`);
+                    compilerError.push(`${elementFn} is registered in ${fnName} module but implementation does not exists.`);
+                    return;
                 }
 
                 if (element.module) {
@@ -210,37 +221,27 @@ module.exports = function(ast, filePath, loader, compilerObject) {
                 }, {});
             }
 
-            if (obj.registry && obj.registry.length) {
-                obj.registry = _processEventRegistry(obj.registry);
+            if (obj.events && obj.events.length) {
+                obj.events = _processEventRegistry(obj.events);
             }
 
             /**
              * input:type=text:model:form-field, textarea
              */
             if (/[,|:=!]/g.test(obj.selector)) {
-                compilerObject.queries[obj.selector] = helper.splitAndTrim(obj.selector, ',').map(key => {
-                    const props = helper.splitAndTrim(key, ':');
-                    const ret = {
-                        name: props.shift()
-                    };
+                compilerObject.queries[obj.selector] = parseQuery(obj.selector);
+            }
 
-                    if (props.length) {
-                        ret.match = props.map(prop => {
-                            const keyValPair = helper.splitAndTrim(prop, /[=!]/);
-                            const matcher = {
-                                name: keyValPair.shift()
-                            };
+            /**
+             * validate resolvers
+             */
+            if (obj.resolvers) {}
 
-                            if (keyValPair.length) {
-                                matcher[helper.isContain('!', prop) ? "not" : 'is'] = helper.splitAndTrim(keyValPair.pop(), '|');
-                            }
-
-                            return matcher;
-                        });
-                    }
-
-                    return ret;
-                });
+            /**
+             * validate registerAs
+             */
+            if (obj.registerAs && !isExportedToken(obj.registerAs, compilerObject)) {
+                compilerError.push(`Token<${obj.registerAs}> definition not found.`);
             }
 
             if (isElement) {
@@ -251,7 +252,7 @@ module.exports = function(ast, filePath, loader, compilerObject) {
                 }
 
                 if (obj.templateUrl) {
-                    obj.template = loader.templateContentLoader(obj.templateUrl, filePath);
+                    obj.template = loader.templateContentLoader(obj.templateUrl, filePath, false);
                 }
 
                 if (obj.styleUrl) {
@@ -320,7 +321,6 @@ module.exports = function(ast, filePath, loader, compilerObject) {
 
             accum[reg.name] = reg;
             delete reg.name;
-
             return accum;
         }, {});
     }

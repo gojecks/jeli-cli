@@ -1,4 +1,5 @@
 const { findTokenInGlobalImports } = require('./compilerobject');
+const helper = require('@jeli/cli-utils');
 /**
  * 
  * @param {*} queryElements
@@ -11,14 +12,18 @@ function _query(queryElements, element) {
         found = (query.name === element.name);
         if (found && query.match && element.attr) {
             let inc = 0;
-            let len = query.match.length;
-            for (let k = 0; k < len; k++) {
+            for (let k = 0; k < query.match.length; k++) {
                 const match = query.match[k];
-                let matcher = element.attr.hasOwnProperty(match.name);
-                if (matcher && match.is) {
-                    matcher = match.is.includes(element.attr[match.name]);
-                } else if (matcher && match.not) {
-                    matcher = !match.not.includes(element.attr[match.name]);
+                let matcher = false;
+                if (match.name) {
+                    matcher = element.attr.hasOwnProperty(match.name);
+                    if (matcher && match.is) {
+                        matcher = match.is.includes(element.attr[match.name]);
+                    } else if (matcher && match.not) {
+                        matcher = !match.not.includes(element.attr[match.name]);
+                    }
+                } else if (match.any) {
+                    matcher = match.any.some(attr => element.attr.hasOwnProperty(attr));
                 }
 
                 // increment counter
@@ -30,7 +35,6 @@ function _query(queryElements, element) {
             if (inc === query.match.length) {
                 return true;
             }
-
         }
 
         // force return
@@ -54,7 +58,9 @@ function _CoreSelector(registeredElement, queries, selector, element) {
         const dir = registeredElement[name];
         if (queries.hasOwnProperty(dir.selector) && element) {
             return _query(queries[dir.selector], element);
-        } else if (dir.selector === selector) {
+        }
+
+        if (dir.selector === selector) {
             return true;
         }
     };
@@ -75,7 +81,7 @@ function _CoreSelector(registeredElement, queries, selector, element) {
  * @param {*} componentName 
  * @param {*} element 
  */
-function CoreQuerySelector(compilerObject, type, selector, componentName, element) {
+exports.CoreQuerySelector = (compilerObject, type, selector, componentName, element) => {
     const found = _CoreSelector(compilerObject[type], compilerObject.queries, selector, element);
 
     if (!element && found.length) {
@@ -98,7 +104,52 @@ function CoreQuerySelector(compilerObject, type, selector, componentName, elemen
         });
     }
 
-    return found;
+    return found.sort((a, b) => {
+        if (a.obj.registerAs) {
+            return -1;
+        }
+        if (b.obj.registerAs && !a.obj.registerAs) {
+            return 1;
+        }
+        // a must be equal to b
+        return 0;
+    });
 }
 
-module.exports = CoreQuerySelector;
+exports.parseQuery = querySelector => {
+    return helper.splitAndTrim(querySelector, ',').map(key => {
+        const props = helper.splitAndTrim(key, ':');
+        const ret = {
+            name: props.shift()
+        };
+
+        if (props.length) {
+            ret.match = props.map(prop => {
+                let matcher;
+                const notIsRegExp = /[=!]/;
+                const combinationRegExp = /\[(.*?)\]/;
+                if (notIsRegExp.test(prop)) {
+                    const keyValPair = helper.splitAndTrim(prop, notIsRegExp);
+                    matcher = {
+                        name: keyValPair.shift()
+                    };
+
+                    if (keyValPair.length) {
+                        matcher[helper.isContain('!', prop) ? "not" : 'is'] = helper.splitAndTrim(keyValPair.pop(), '|');
+                    }
+                } else if (combinationRegExp.test(prop)) {
+                    matcher = {
+                        any: helper.splitAndTrim(prop.match(combinationRegExp)[1], '|')
+                    };
+                } else {
+                    matcher = {
+                        name: prop
+                    };
+                }
+                return matcher;
+            });
+        }
+
+        return ret;
+    })
+}

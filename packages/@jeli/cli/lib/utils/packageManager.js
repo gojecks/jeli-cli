@@ -26,7 +26,7 @@ exports.getPackageManagerList = async() => {
 };
 
 exports.install = async(cmd, cwd) => {
-    const spinner = ora.start(jeliUtils.colors.bold('installing dependencies...'));
+    const spinner = ora.start(jeliUtils.colors.bold('📦  Installing dependencies...'));
     const options = {
         npm: {
             install: ['install', '--loglevel', 'error']

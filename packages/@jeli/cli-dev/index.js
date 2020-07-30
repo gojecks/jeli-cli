@@ -27,7 +27,7 @@ const validateSchema = (folder) => {
  * @param {*} options 
  * @param {*} pushEvent 
  */
-async function build(entry, options, pushEvent) {
+exports.build = async function build(entry, options, pushEvent) {
     const schemaPath = validateSchema(options.cwd);
     const watch = require('./lib/build/watch');
     changeCWD(options.cwd);
@@ -69,7 +69,7 @@ async function build(entry, options, pushEvent) {
  * @param {*} entry 
  * @param {*} options 
  */
-async function serve(entry, options) {
+exports.server = async function(entry, options) {
     validateSchema(options.cwd);
     const { genServerOptions, attachListeners, cleanup } = require('./lib/utils/server');
     const os = require('os');
@@ -142,9 +142,4 @@ async function serve(entry, options) {
         cleanup(serverOptions);
     });
 
-}
-
-module.exports = {
-    build,
-    serve
 }

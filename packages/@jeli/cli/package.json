@@ -37,7 +37,7 @@
         "@jeli/cli-utils": "0.0.1"
     },
     "bin": {
-        "jeli": "bin/index.js"
+        "jeli": "bin/jeli.js"
     },
     "engines": {
         "node": ">=8.9"

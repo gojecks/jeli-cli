@@ -1,0 +1,7 @@
+{
+    "cli": {
+        "packageManager": "[PACKAGEMANAGER]"
+    },
+    "projects": {},
+    "default": "[NAME]"
+}

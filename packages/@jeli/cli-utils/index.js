@@ -67,11 +67,13 @@ exports.simpleArgumentParser = (expression) => {
         return possibleMatcher;
     } else if (expression && !isNaN(isNum)) {
         return isNum;
+    } else if (this.isContain(expression.charAt(0), '[{')) {
+        try {
+            return JSON.parse(expression);
+        } catch {
+            return expression;
+        }
     }
-    // else if (isContain(expression.charAt(0), '[{')) {
-    //     const parsed = esprima.parse(`(${expression})`);
-    //     return getValueFromAst(parsed.body[0].expression);
-    // }
 
     return expression;
 }
@@ -138,7 +140,7 @@ exports.rgbToHex = (r, g, b) => {
     return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
 
-exports.splitAndTrim = (stack, needle) => stack.split(needle).map(key => key.trim());
+exports.splitAndTrim = (stack, needle) => stack.split(needle).map(key => key.trim()).filter(needle => needle);
 
 /**
  * 
@@ -147,8 +149,8 @@ exports.splitAndTrim = (stack, needle) => stack.split(needle).map(key => key.tri
  * @param {*} skipQuote 
  */
 exports.stringToObjectNameValueMapping = (prop, useName, skipQuote) => {
-    const inp = splitAndTrim(prop, /=/);
-    const nameProp = splitAndTrim(inp.shift(), ":");
+    const inp = this.splitAndTrim(prop, /=/);
+    const nameProp = this.splitAndTrim(inp.shift(), ":");
     const item = {
         name: (nameProp.shift()).replace(/[?#]/g, ''),
     };
@@ -174,7 +176,7 @@ exports.throwError = (msg) => {
 };
 
 exports.is = (a, b) => a === b;
-exports.typeOf = (a, b) => is(typeof a, b);
+exports.typeOf = (a, b) => this.is(typeof a, b);
 exports.trimPackageName = str => {
     const name = str.replace(/@/, '').replace(/[\/]/g, '-');
     const nameSpace = name.split('-');
@@ -216,7 +218,7 @@ exports.clearConsole = async function(msg, scroll) {
 };
 
 exports.isNotFoundError = err => err.message.match(/Cannot find module/);
-exports.ternary = (a, b, c) => is(a, b) ? a : c;
+exports.ternary = (a, b, c) => this.is(a, b) ? a : c;
 
 /**
  * 
@@ -230,7 +232,7 @@ exports.stringifyContent = (content) => {
 }
 
 exports.abort = _ => {
-    console.log(colors.red(_ || 'Please fix errors to proceed with compilation.'));
+    console.log(colors.red(_ || '\nPlease fix errors.'));
     process.exit(1);
 };
 
@@ -247,6 +249,20 @@ exports.cleanArgs = (cmd) => {
         }
     })
     return args
+};
+
+exports.kebabCase = str => {
+    return str.split('').map((char, idx) => {
+        if (/[A-Z]/.test(char)) {
+            return ('-' != str[idx - 1]) ? `-${char.toLowerCase()}` : char.toLowerCase()
+        }
+
+        return char;
+    }).join('')
+};
+
+exports.pascalCase = str => {
+    return str.charAt(0).toUpperCase() + this.camelCase(str.substring(1));
 };
 
 exports.console = {

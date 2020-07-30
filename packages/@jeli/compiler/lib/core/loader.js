@@ -7,16 +7,15 @@ const glob = require('glob');
 module.exports = function() {
     const spinner = ora.start('compiling...');
     const REQUIRED_ID = 'ϕrequired';
-    const nodeModulesPath = './node_modules';
     /**
      * 
      * @param {*} filePath 
      * @param {*} parentPath 
+     * @param {*} stringify 
      */
-    function templateContentLoader(filePath, parentPath) {
+    function templateContentLoader(filePath, parentPath, stringify = true) {
         spinner.changeText('Found template: ' + filePath);
-        const content = readFile(path.join(parentPath, '..', filePath));
-        return helper.stringifyContent(content.replace(/\n/g, ''));
+        return (readFile(path.join(parentPath, '..', filePath)) || '').replace(/\n/g, '');
     }
 
     /**
@@ -42,10 +41,14 @@ module.exports = function() {
         return path.join.apply(path, arguments);
     }
 
-    function readFile(filePath) {
+    /**
+     * 
+     * @param {*} filePath 
+     * @param {*} parentPath 
+     */
+    function readFile(filePath, parentPath) {
         if (!fs.existsSync(filePath)) {
-            helper.console.error(`File ${filePath} does not exists.`);
-            helper.abort();
+            throw new Error(`File "${helper.colors.yellow(filePath)}" does not exists`);
         }
 
         return fs.readFileSync(filePath, 'utf8');
@@ -70,27 +73,31 @@ module.exports = function() {
         return `${REQUIRED_ID}${id ? '[' + id + ']' : ''}`;
     }
 
-    /**
-     * Check if the request file is a module and needs to be imported or skip import for later
-     * @param {*} source 
-     */
-    function isGlobalImport(source) {
-        if (source.charAt(0) !== '.') {
-            return true;
-        }
-        /**
-         * check if its directory
-         */
-        return (fs.existsSync(path.join(nodeModulesPath, source)) && fs.existsSync(path.join(nodeModulesPath, source, './package.json')));
-    }
 
     /**
      * 
-     * @param {*} module 
+     * @param {*} dep 
+     * @param {*} parentPath 
+     * @param {*} resolveOptions 
      */
-    function resolveDependency(dep) {
-        const depPath = path.resolve(nodeModulesPath, dep);
-        if (fs.existsSync(depPath)) {
+    function resolveDependency(dep, parentPath, resolveOptions) {
+        /**
+         * dep is a relative path
+         */
+        if (helper.is(dep.charAt(0), '.')) {
+            return null;
+        } else if (resolveOptions.alias && resolveOptions.alias.hasOwnProperty(dep)) {
+            return _resolveModule(resolveOptions.alias[dep]);
+        }
+
+        for (const resolvePath of resolveOptions.paths) {
+            const depPath = path.join(resolvePath, dep);
+            if (fs.existsSync(depPath)) {
+                return _resolveModule(depPath);
+            } else if (fs.existsSync(`${depPath}.js`)) return { source: `${depPath}.js` };
+        }
+
+        function _resolveModule(depPath) {
             const pkgJson = getPackageJson(depPath);
             if (pkgJson) {
                 /**
@@ -98,14 +105,15 @@ module.exports = function() {
                  * also understood by jeli
                  */
                 return {
-                    source: path.join(nodeModulesPath, dep, pkgJson.module || pkgJson.main),
-                    metadata: path.join(nodeModulesPath, dep, pkgJson.metadata || 'metadata.json'),
+                    source: path.join(depPath, pkgJson.module || pkgJson.main),
+                    metadata: path.join(depPath, pkgJson.metadata || 'metadata.json'),
                     isModule: !!pkgJson.module
                 };
             }
-            const indexPath = path.join(nodeModulesPath, dep, './index.js');
+
+            const indexPath = path.join(depPath, './index.js');
             if (fs.existsSync(indexPath)) return { source: indexPath }
-        } else if (fs.existsSync(`${depPath}.js`)) return { source: `${path.join(nodeModulesPath, dep)}.js` };
+        }
 
         return null;
     }
@@ -132,7 +140,6 @@ module.exports = function() {
         readFile,
         joinFilePath,
         getRequiredId,
-        isGlobalImport,
         resolveDependency,
         spinner
     };

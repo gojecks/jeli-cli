@@ -5,7 +5,7 @@
  const { escogen, generateAstSource } = require('./ast.generator');
  const path = require('path');
  const annotationParser = require('./annotation');
- const { resolveMetaData } = require('./compilerobject');
+ const { resolveMetaData, getMetaData } = require('./compilerobject');
 
 
  /**
@@ -17,9 +17,14 @@
      /**
       * 
       * @param {*} filePath 
+      * @param {*} parentPath 
+      * @param {*} isExternalModule 
       */
-     function processFile(filePath) {
-         if (currentInstance.files.hasOwnProperty(filePath)) return;
+     async function processFile(filePath, parentPath, isExternalModule, importedItem) {
+         if (currentInstance.files.hasOwnProperty(filePath)) {
+             return await validateImports(importedItem, currentInstance.files[filePath].exports, filePath, parentPath);
+         };
+
          loader.spinner.changeText(`compiling file ->${filePath}`);
          /**
           * add the resolved filePath to currentInstance for reference
@@ -29,36 +34,60 @@
              exports: []
          };
 
+         let source;
+
          // Read file source.
-         let source = generateAstSource(
-             extractRequired(loader.readFile(filePath), filePath),
-             fileImpExt,
-             currentInstance.options.stripBanner
-         );
-         currentInstance.exports.push.apply(currentInstance.exports, fileImpExt.exports);
-         /**
-          * process importedFiles
-          */
-         fileImpExt.imports.forEach(impItem => importFile(impItem, filePath));
-         const otherScripts = escogen(source.scripts);
-         if (currentInstance.required.hasOwnProperty(filePath)) {
-             currentInstance.required[filePath].push(otherScripts);
-         } else {
-             currentInstance.output.push(otherScripts);
+         try {
+             source = generateAstSource(
+                 extractRequired(loader.readFile(filePath, parentPath), filePath),
+                 fileImpExt
+             );
+
+             if (!isExternalModule) {
+                 currentInstance.exports.push.apply(currentInstance.exports, fileImpExt.exports);
+             }
+
+             await validateImports(importedItem, fileImpExt.exports, filePath, parentPath);
+
+             /**
+              * process importedFiles
+              */
+             for (const impItem of fileImpExt.imports) {
+                 await importFile(impItem, filePath);
+             }
+
+             const otherScripts = escogen(source.scripts);
+             if (currentInstance.output.modules.hasOwnProperty(filePath)) {
+                 currentInstance.output.modules[filePath].push(otherScripts);
+             } else {
+                 currentInstance.output.global.push(otherScripts);
+             }
+             source.annotations.forEach(ast => {
+                 annotationParser(ast, filePath, loader, currentInstance)
+             });
+
+             currentInstance.files[filePath] = fileImpExt;
+         } catch (err) {
+             loader.spinner.fail('');
+             helper.console.error(`\nError while compiling ${helper.colors.yellow(filePath)} ${parentPath ? ' imported in '+helper.colors.yellow(parentPath) : '' }`);
+             helper.console.warn(`\nReasons: ${err.message}`);
+             helper.abort('\nFix errors and try again.\n');
          }
-         source.annotations.forEach(ast => {
-             annotationParser(ast, filePath, loader, currentInstance)
-         });
-         currentInstance.files[filePath] = fileImpExt;
      }
 
      /**
       * 
       * @param {*} importItem 
       * @param {*} parentPath 
+      * @param {*} isExternalModule 
       */
-     function importFile(importItem, parentPath) {
-         if (!loader.isGlobalImport(importItem.source)) {
+     async function importFile(importItem, parentPath, isExternalModule) {
+         /**
+          * resolve the dependency
+          */
+         const resolvedDep = loader.resolveDependency(importItem.source, parentPath, currentInstance.options.resolve);
+         const isLib = helper.is('library', currentInstance.options.type);
+         if (!resolvedDep) {
              let importFilePath = importItem.source;
              const ext = path.extname(importFilePath);
              if (!ext || !helper.is(ext, '.js')) {
@@ -70,39 +99,39 @@
               */
              if (helper.isContain('*', importFilePath)) {
                  loader.spinner.warn(helper.colors.yellow(`glob patterns not allowed in statement: ${parentPath} -> ${importFilePath}`));
-                 // loader.getGlobFiles(importFilePath);
              } else {
                  importFilePath = path.join(parentPath, '..', importFilePath);
-                 createDefault(importItem, importFilePath);
-                 processFile(importFilePath, importItem.source);
+                 if (!isLib) {
+                     _pushToDependency(importFilePath, parentPath);
+                 }
+                 await processFile(importFilePath, parentPath, isExternalModule, importItem);
              }
          } else {
-             /**
-              * resolve the dependency
-              */
-             const resolvedDep = loader.resolveDependency(importItem.source);
-             if (resolvedDep) resolveMetaData(resolvedDep.metadata, importItem.source);
+             if (resolvedDep) resolveMetaData(resolvedDep, importItem);
              else {
                  loader.spinner.fail(`unable to resolve dependency ${importItem.source} -> ${parentPath}`);
                  helper.abort();
              }
 
-             if (helper.is('library', currentInstance.options.type)) {
-                 if (!currentInstance.globalImports.hasOwnProperty(importItem.source)) {
-                     currentInstance.globalImports[importItem.source] = {
-                         output: helper.trimPackageName(importItem.source),
-                         specifiers: []
-                     };
+             if (!currentInstance.globalImports.hasOwnProperty(importItem.source)) {
+                 currentInstance.globalImports[importItem.source] = {
+                     output: helper.trimPackageName(importItem.source),
+                     specifiers: [],
+                     fullPath: resolvedDep.source
+                 };
+             }
+
+             importItem.specifiers.forEach(opt => {
+                 if (!currentInstance.globalImports[importItem.source].specifiers.includes(opt.imported)) {
+                     currentInstance.globalImports[importItem.source].specifiers.push(opt.imported)
                  }
+             });
 
-                 importItem.specifiers.forEach(opt => {
-                     if (!currentInstance.globalImports[importItem.source].specifiers.includes(opt.imported)) {
-                         currentInstance.globalImports[importItem.source].specifiers.push(opt.imported)
-                     }
-                 });
+             if (!isLib) {
+                 _pushToDependency(resolvedDep.source);
+                 await processFile(resolvedDep.source, parentPath, true, importItem);
              } else {
-
-                 processFile(resolvedDep.source, resolvedDep.source);
+                 await validateImports(importItem, getMetaData(importItem.source).exports, importItem.source, parentPath);
              }
          }
      }
@@ -115,8 +144,8 @@
      function extractRequired(source, filePath) {
          return source.replace(/require\((.*)\)/g, (_, value) => {
              value = path.join(filePath, '..', helper.removeSingleQuote(value));
-             if (!currentInstance.required.hasOwnProperty(value)) {
-                 currentInstance.required[value] = value;
+             if (!currentInstance.output.modules.hasOwnProperty(value)) {
+                 currentInstance.output.modules[value] = value;
              }
              return `__required('${value}')`;
          });
@@ -124,45 +153,42 @@
 
      /**
       * 
-      * @param {*} importItem 
       * @param {*} filePath 
+      * @param {*} parentPath 
       */
-     function createDefault(importItem, filePath) {
-         if (importItem.default) {
-             if (!currentInstance.required.hasOwnProperty(filePath)) {
-                 currentInstance.output.push(`var ${importItem.specifiers[0].imported} = __importDefault(__required('${filePath}'));`);
-                 currentInstance.required[filePath] = [];
-             }
+     function _pushToDependency(filePath, parentPath) {
+         if (!currentInstance.output.modules.hasOwnProperty(filePath)) {
+             currentInstance.output.modules[filePath] = [];
          }
      }
 
-     processFile(path.join(currentInstance.options.sourceRoot, currentInstance.entryFile));
- }
-
- /**
-  * 
-  * @param {*} source 
-  * @param {*} files 
-  */
- function extractImport(source, files) {
-     return source.replace(/import\s(\{(.*)\}\s|[*\s]|)+(from\s|)+(.*)+;/g, (key, variableKey, parsedVariables, from, filePath) => {
-         if (!filePath) {
-             throw new Error('Invalid Import statement');
+     /**
+      * 
+      * @param {*} importedItem 
+      * @param {*} exported 
+      */
+     async function validateImports(importedItem, exported, filePath, parentPath) {
+         exported = exported.map(item => item.exported);
+         const invalidImport = hasInvalidImport(importedItem, exported);
+         if (invalidImport && invalidImport.length) {
+             loader.spinner.fail('');
+             helper.console.error(`\n no exported name(s) ${helper.colors.yellow(invalidImport.map(item => item.imported).join(' , '))} in ${helper.colors.yellow(filePath)} imported in ${helper.colors.yellow(parentPath)}\n`);
+             helper.abort()
          }
-         filePath = filePath.trim();
-         var ext = path.extname(filePath);
-         if (!ext || !is(ext, 'js')) {
-             filePath += '.js';
-         }
+     }
 
-         files.push({
-             variableKey,
-             parsedVariables,
-             from: !from,
-             filePath: removeSingleQuote(filePath)
-         });
-         return '';
-     });
+
+     /**
+      * 
+      * @param {*} importItem 
+      * @param {*} exportedItem 
+      */
+     function hasInvalidImport(importItem, exportedItem) {
+         if (!importItem || importItem.default || !importItem.specifiers.length) return false;
+         return importItem.specifiers.filter(item => !exportedItem.includes(item.imported));
+     }
+
+     await processFile(path.join(currentInstance.options.sourceRoot, currentInstance.entryFile));
  }
 
  module.exports = async function(compilerObject, loader) {

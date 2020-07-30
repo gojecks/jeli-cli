@@ -2,7 +2,7 @@ const esprima = require('esprima');
 const helper = require('@jeli/cli-utils');
 const escodegen = require('escodegen');
 const comment = require('./comment');
-const expressionList = 'Directive,Element,Service,Provider,Pipe,jModule,Value'.split(',');
+const expressionList = 'Directive,Element,Service,Provider,Pipe,jModule'.split(',');
 const ASTDeclarations = {
     IMPORT: "ImportDeclaration",
     EXPORT_NAMED: "ExportNamedDeclaration",
@@ -21,10 +21,14 @@ const ASTExpression = {
     OBJECT: 'ObjectExpression',
     MEMBER: "MemberExpression",
     BINARY: "BinaryExpression",
-    CONDITIONAL: "ConditionalExpression"
+    CONDITIONAL: "ConditionalExpression",
+    EMPTY: "EmptyStatement",
+    UNARY: "UnaryExpression",
+    NEW: "NewExpression",
+    THIS: "ThisExpression"
 };
 
-const ASTIdentiifier = 'Identifier';
+const ASTIdentifier = 'Identifier';
 const ASTDefaultSpecifier = "ImportDefaultSpecifier";
 
 function deduceSourceType(source) {
@@ -41,20 +45,20 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
     let ast = null;
     try {
         ast = esprima.parse(source, {
-            attachComment: stripBanner,
+            attachComment: false,
             range: false,
             loc: false,
             sourceType: deduceSourceType(source)
         });
     } catch (e) {
-        helper.throwError(e.message);
+        throw e.message;
     }
 
     const sourceOutlet = {
         annotations: [],
         scripts: [],
         type: ast.sourceType
-    }
+    };
 
     for (var i = 0; i < ast.body.length; i++) {
         const expression = ast.body[i];
@@ -68,7 +72,7 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                 if (expression.declaration) {
                     switch (expression.declaration.type) {
                         case (ASTDeclarations.CLASS):
-                            throwError('Class exportation not yet supported');
+                            throw new Error('Class exportation not yet supported');
                         case (ASTDeclarations.VARIABLE):
                             currentProcess.exports.push({
                                 local: expression.declaration.declarations[0].id.name,
@@ -100,13 +104,13 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                 }
                 break;
             case (ASTExpression.STATEMENT):
-                if (expression.expression.type == ASTExpression.CALL && expressionList.includes(expression.expression.callee.name)) {
+                if (isAnnotationStatement(expression)) {
                     // found Annotations
                     const impl = getFunctionImpl(ast.body, i, currentProcess.exports);
                     sourceOutlet.annotations.push({
                         impl,
                         type: expression.expression.callee.name,
-                        definitions: generateProperties(expression.expression.arguments[0].properties)
+                        definitions: generateProperties(expression.expression.arguments[0].properties, true)
                     });
                     i = i + impl.length;
                 } else {
@@ -120,6 +124,12 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
     }
 
     return sourceOutlet;
+}
+
+function isAnnotationStatement(expression) {
+    return (expression.expression &&
+        expression.expression.type == ASTExpression.CALL &&
+        expressionList.includes(expression.expression.callee.name))
 }
 
 /**
@@ -144,25 +154,30 @@ function validateSourcePath(path, type) {
  */
 function getFunctionImpl(ast, idx, exports) {
     const entryAst = ast[idx + 1];
-    if (helper.is(entryAst.type, ASTDeclarations.EXPORT_NAMED) && helper.is(entryAst.declaration.type, ASTDeclarations.FUNCTION)) {
+    if (helper.isContain(entryAst.type, [ASTDeclarations.EXPORT_NAMED, ASTDeclarations.EXPORT_DEFAULT]) &&
+        helper.is(entryAst.declaration.type, ASTDeclarations.FUNCTION)) {
         exports.push({
             local: entryAst.declaration.id.name,
             exported: entryAst.declaration.id.name
         });
-    } else if (!helper.is(entryAst.type, ASTDeclarations.FUNCTION))
-        helper.throwError(`Annotation should be followed by a Function Declaration`);
+    } else if (!helper.is(entryAst.type, ASTDeclarations.FUNCTION)) {
+        throw new Error(`Annotation should be followed by a Function Declaration`);
+    }
 
     const fn = (entryAst.declaration || entryAst).id.name;
     const impl = [entryAst.declaration || entryAst];
 
-    ast.slice(idx + 2).forEach(expression => {
-        if (helper.is(expression.type, ASTExpression.STATEMENT) &&
-            helper.is(expression.expression.type, ASTExpression.ASSIGNMENT) &&
-            helper.is(expression.expression.left.object.name || expression.expression.left.object.object.name, fn)
-        ) {
-            impl.push(expression);
-        }
-    });
+    for (const expression of ast.slice(idx + 2)) {
+        if (isAnnotationStatement(expression)) return impl;
+        if (_matches(expression)) impl.push(expression);
+    }
+
+    function _matches(expression) {
+        return helper.is(ASTExpression.EMPTY, expression.type) ||
+            (helper.is(expression.type, ASTExpression.STATEMENT) &&
+                helper.is(expression.expression.type, ASTExpression.ASSIGNMENT) &&
+                helper.is(expression.expression.left.object.name || expression.expression.left.object.object.name, fn))
+    }
 
     return impl;
 }
@@ -184,58 +199,70 @@ function getClassDeclarationFromAst(declaration) {
  * @param {*} expression 
  * @param {*} addQuote 
  */
-function getValueFromAst(expression, addQuote) {
+function getValueFromAst(expression, addQuote, scriptMode) {
     switch (expression.type) {
         case (ASTExpression.ARRAY):
-            return expression.elements.map(item => getValueFromAst(item));
+            return expression.elements.map(item => getValueFromAst(item, addQuote, scriptMode));
         case (ASTExpression.OBJECT):
-            return generateProperties(expression.properties);
-        case (ASTIdentiifier):
-            return expression.name;
+            const expr = generateProperties(expression.properties, scriptMode, addQuote);
+            return scriptMode ? expr : ({
+                type: 'obj',
+                expr
+            });
+        case (ASTIdentifier):
+            return addQuote ? `'${expression.name}'` : expression.name;
         case (ASTExpression.MEMBER):
-            return getNameSpaceFromAst(expression.object, [], addQuote);
+            return getNameSpaceFromAst(expression, [], addQuote);
         case (ASTExpression.CONDITIONAL):
             return {
                 type: "ite",
-                test: expression.test.name,
-                cons: expression.consequent.value,
-                alt: expression.alternate.value
+                test: getValueFromAst(expression.test),
+                cons: getValueFromAst(expression.consequent, true),
+                alt: getValueFromAst(expression.alternate, true)
             };
         case (ASTExpression.ASSIGNMENT):
             return {
-                left: expression.left.name,
+                type: "asg",
+                left: getValueFromAst(expression.left),
                 right: getValueFromAst(expression.right)
             };
             break;
         case (ASTExpression.BINARY):
             return {
                 type: "bin",
-                context: expression.left.name,
-                operator: expression.operator,
-                values: getValueFromAst(expression.right)
+                left: getValueFromAst(expression.left),
+                ops: expression.operator,
+                right: getValueFromAst(expression.right)
             };
         case (ASTExpression.CALL):
             /**
              * MemberExpression
              * test.test.test(a,b)
              */
-            const nameSpaces = getNameSpaceFromAst(expression.callee, [], addQuote);
+            const namespaces = getNameSpaceFromAst(expression.callee, [], addQuote);
             const item = {
-                args: expression.arguments.map(item => {
-                    if (item.name) {
-                        return addQuote ? `'${item.name}'` : item.name;
-                    }
-
-                    return helper.simpleArgumentParser(item.raw || item.value);
-                }),
-                fn: nameSpaces.pop()
+                type: addQuote ? "'call'" : "call",
+                args: getArguments(expression.arguments, addQuote),
+                fn: namespaces.pop()
             };
 
-            if (nameSpaces.length) {
-                item.nameSpaces = nameSpaces;
+            if (namespaces.length) {
+                item.namespaces = namespaces;
             }
 
             return item;
+        case (ASTExpression.UNARY):
+            return {
+                type: "una",
+                ops: expression.operator,
+                args: getValueFromAst(expression.argument, addQuote)
+            };
+        case (ASTExpression.NEW):
+            return {
+                type: "new",
+                fn: expression.callee.name,
+                args: getArguments(expression.arguments, addQuote)
+            };
         case (ASTDeclarations.IMPORT):
             return ({
                 specifiers: (expression.specifiers || []).map(specifier => {
@@ -248,8 +275,23 @@ function getValueFromAst(expression, addQuote) {
                 source: expression.source.value
             });
         default:
-            return expression.value;
+            if (addQuote && expression.raw != expression.value)
+                return {
+                    type: 'raw',
+                    value: expression.value
+                };
+            else
+                return expression.value;
     }
+}
+
+/**
+ * 
+ * @param {*} args 
+ * @param {*} addQuote 
+ */
+function getArguments(args, addQuote) {
+    return args.map(item => getValueFromAst(item, addQuote))
 }
 
 /**
@@ -259,10 +301,19 @@ function getValueFromAst(expression, addQuote) {
  * @param {*} addQuote 
  */
 function getNameSpaceFromAst(ast, list, addQuote) {
-    if (ast.object && ast.object.object) {
-        getNameSpaceFromAst(ast.object, list, addQuote);
+    if (ast.object) {
+        /**
+         * check for callExpression
+         */
+        if (helper.is(ast.object.type, ASTExpression.CALL)) {
+            list.push(getValueFromAst(ast.object, addQuote));
+        } else if (ast.object.object) {
+            getNameSpaceFromAst(ast.object, list, addQuote);
+        } else {
+            list.push(helper.is(ast.object.type, ASTExpression.THIS) ? '$this' : ast.object.name);
+        }
     } else {
-        list.push((ast.object || ast).name);
+        list.push(ast.name);
     }
 
     if (ast.property) {
@@ -275,13 +326,16 @@ function getNameSpaceFromAst(ast, list, addQuote) {
 
     return list;
 }
+
 /**
  * 
  * @param {*} properties 
+ * @param {*} scriptMode 
+ * @param {*} addQuote 
  */
-function generateProperties(properties) {
+function generateProperties(properties, scriptMode, addQuote = false) {
     return properties.reduce((accum, prop) => {
-        accum[prop.key.name || prop.key.value] = getValueFromAst(prop.value);
+        accum[prop.key.name || prop.key.value] = getValueFromAst(prop.value, addQuote, scriptMode);
         return accum;
     }, {});
 }
@@ -299,9 +353,9 @@ exports.parseAst = (expression, addQuote) => {
  * 
  * @param {*} expression 
  */
-exports.parseAstJSON = (expression) => {
+exports.parseAstJSON = (expression, addQuote) => {
     const parsed = esprima.parse(`(${expression})`);
-    return getValueFromAst(parsed.body[0].expression);
+    return getValueFromAst(parsed.body[0].expression, addQuote);
 }
 
 /**

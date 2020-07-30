@@ -1,5 +1,5 @@
 {
-    "version": "[VESION]",
+    "version": "[VERSION]",
     "dependencies": {
         "@jeli/core": "0.0.1"
     }

@@ -1,7 +1,9 @@
 const helper = require('@jeli/cli-utils');
 const htmlParser = require('./html_parser');
-const runQuery = require('./query_selector');
-const { outputApplicationFiles, outputLibraryFiles } = require('./output');
+const { CoreQuerySelector } = require('./query_selector');
+const { outputApplicationFiles, outputLibraryFiles, pushStyle } = require('./output');
+const { findTokenInGlobalImports, isExportedToken, getPipeProvider } = require('./compilerobject');
+const { attachViewSelectorProviders } = require('./view.provier');
 const annotationProps = ['name', 'selector', 'exportAs', 'module'];
 
 /**
@@ -21,7 +23,7 @@ async function CoreGenerator(compilerObject, loader, entry) {
             case ('service'):
             case ('provider'):
             case ('pipe'):
-                _resolveDependecies(compilerObject.services[definition.fn], definition.fn);
+                _resolveDependecies(compilerObject.services[definition.fn], definition.fn, definition.filePath);
                 definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(compilerObject.services[definition.fn], annotationProps)};`);
                 quoteFix(annotationProps, compilerObject.services[definition.fn]);
                 if (compilerObject.services[definition.fn].static) {
@@ -32,29 +34,33 @@ async function CoreGenerator(compilerObject, loader, entry) {
             case ('element'):
                 const obj = compilerObject[definition.type][definition.fn];
                 if (!obj.module) {
-                    throw new Error(`${definition.fn} is not registered to any Module`);
+                    helper.abort(`${helper.colors.yellow(definition.fn)} is not registered to any Module`);
                 }
                 const template = obj.template;
                 const style = obj.style;
                 delete obj.template;
                 delete obj.style;
-                _resolveDependecies(obj, definition.fn);
+                _resolveDependecies(obj, definition.fn, definition.filePath);
                 definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(obj, annotationProps)};`);
                 quoteFix(annotationProps, obj);
                 if (helper.is(definition.type, 'Element')) {
                     if (template) {
                         const parsedHtml = htmlParser(template, obj, compilerResolver, definition.fn);
                         if (parsedHtml.errorLogs.length) {
-                            helper.console.header(`TemplateCompilerError -> Element<${definition.fn}>`);
+                            helper.console.header(`TemplateCompilerError -> Element<${definition.fn}> : ${definition.filePath}`);
                             parsedHtml.errorLogs.forEach(helper.console.error);
                             helper.abort();
                         }
-                        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ new HtmlParser(${JSON.stringify(parsedHtml.parsedContent)}, ${JSON.stringify(parsedHtml.templatesMapHolder)}, ${writeAnnot(parsedHtml.providers)}) /** template loader **/;`);
+                        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ new ViewParser(${attachViewProviders(definition.filePath, parsedHtml)}, ${JSON.stringify(parsedHtml.templatesMapHolder)}) /** template loader **/;`);
                     }
 
                     // style parser
                     if (style) {
-                        definition.annotations.push(`${definition.fn}.style = ${helper.stringifyContent(style)};`);
+                        pushStyle({
+                            name: definition.fn,
+                            style
+                        });
+                        // definition.annotations.push(`${definition.fn}.style = ${helper.stringifyContent(style)};`);
                     }
                 }
                 break;
@@ -63,7 +69,6 @@ async function CoreGenerator(compilerObject, loader, entry) {
                  * compile @config and @initializers
                  */
                 definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(compilerObject.modules[definition.fn])};`);
-                definition.annotations.push(`${definition.fn}._name = '${definition.fn}';`);
                 break;
         }
 
@@ -97,24 +102,48 @@ async function CoreGenerator(compilerObject, loader, entry) {
 
     /**
      * 
-     * @param {*} name 
-     * @param {*} obj 
+     * @param {*} processFilePath 
+     * @param {*} parsedHtml 
      */
-    function _resolveDependecies(obj, fn) {
+    function attachViewProviders(processFilePath, parsedHtml) {
+        const imports = compilerObject.files[processFilePath].imports;
+        let output = JSON.stringify(parsedHtml.parsedContent);
+        attachViewSelectorProviders(parsedHtml.providers, compilerObject, imports).forEach(replaceProviders);
+
+        function replaceProviders(providerName) {
+            output = output.replace(new RegExp(`"%${providerName}%"`, 'g'), providerName);
+        }
+
+        return output;
+    }
+
+    /**
+     * 
+     * @param {*} obj 
+     * @param {*} fn 
+     * @param {*} filePath 
+     */
+    function _resolveDependecies(obj, fn, filePath) {
         if (obj.DI) {
             Object.keys(obj.DI).forEach(name => {
                 const config = obj.DI[name];
-                const service = compilerResolver.getService(name);
+                const service = compilerResolver.getService(name, filePath);
                 if (!service && !config.optional) {
-                    helper.throwError(`Unable to find Depenedecy: ${name} -> ${fn}`);
+                    helper.console.error(`Unable to resolve depenedecy: ${helper.colors.yellow(name)} -> ${helper.colors.yellow(fn)} in ${helper.colors.yellow(filePath)}`);
+                    helper.abort();
                 }
 
                 if (service) {
                     if (service.DI && service.DI.hasOwnProperty(fn)) {
-                        helper.throwError(`Found circular dependency: ${fn} -> ${name}`);
+                        helper.console.error(`Found circular dependency: ${helper.colors.yellow(fn)} -> ${helper.colors.yellow(name)} in ${helper.colors.yellow(filePath)}`);
+                        helper.abort();
                     }
 
-                    config.factory = service;
+                    if (!service.internal) {
+                        config.factory = name;
+                    } else {
+                        config.internal = true;
+                    }
                 }
             });
         }
@@ -150,38 +179,44 @@ async function CoreGenerator(compilerObject, loader, entry) {
     const compilerResolver = {
         getFn: directiveConfiguration => directiveConfiguration && directiveConfiguration.map(def => def.fn),
         getElement: (selector, component) => {
-            return runQuery(compilerObject, 'Element', selector, component);
+            return CoreQuerySelector(compilerObject, 'Element', selector, component);
         },
         getDirectives: (selector, element, component) => {
-            return runQuery(compilerObject, 'Directive', selector, component, element);
+            return CoreQuerySelector(compilerObject, 'Directive', selector, component, element);
         },
         getModule: moduleName => compilerObject.modules[moduleName],
-        getService: serviceName => {
+        getService: (serviceName, filePath) => {
             if (compilerObject.services.hasOwnProperty(serviceName)) {
                 return compilerObject.services[serviceName];
             }
 
-            return Object.keys(compilerObject.services).find(name => helper.is(serviceName, compilerObject.services[name].name));
+            const inGlobalImports = findTokenInGlobalImports(serviceName, compilerObject, 'services');
+            if (inGlobalImports) {
+                return inGlobalImports[serviceName] || {
+                    internal: true
+                }
+            }
+
+            return isExportedToken(serviceName, compilerObject);
+        },
+        getPipe: pipeName => {
+            return getPipeProvider(pipeName, compilerObject)
         }
     };
 
-    /**
-     * 
-     * @param {*} requiredFilePaths 
-     */
-    function resolveRequired() {
-        const required = Object.keys(compilerObject.required);
-        if (required.length) {
-            const files = required.map(filePath => {
-                const req = compilerObject.required[filePath];
-                return `    '${filePath}': function(){return ${typeof req == 'string' ? loader.readFile(req): req.join('') }}`;
-            });
-            compilerObject.output.push(`/** JELI CONTEXT **/ \nvar ${loader.getRequiredId()} = {\n${files.join(',\n')}\n};`);
+    scriptBody = compilerObject.output.global.map(element => {
+        if (helper.typeOf(element, 'object')) {
+            const compiledModule = compile(element);
+            if (compilerObject.output.modules.hasOwnProperty(element.filePath)) {
+                compilerObject.output.modules[element.filePath].push(compiledModule);
+                return '';
+            } else {
+                return compiledModule;
+            }
+        } else {
+            return element;
         }
-    }
-
-    resolveRequired(compilerObject);
-    scriptBody = compilerObject.output.map(element => helper.typeOf(element, 'object') ? compile(element) : element).join('\n');
+    }).filter(item => !!item).join('\n');
     /**
      * save files
      */

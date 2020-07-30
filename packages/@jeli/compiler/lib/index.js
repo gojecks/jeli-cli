@@ -1,8 +1,8 @@
 'use strict';
-const loader = require('./lib/core/loader');
-const compiler = require('./lib/core/compiler');
-const generator = require('./lib/core/generator');
-const { CompilerObject, session } = require('./lib/core/compilerobject');
+const loader = require('./core/loader');
+const compiler = require('./core/compiler');
+const generator = require('./core/generator');
+const { CompilerObject, session } = require('./core/compilerobject');
 const helper = require('@jeli/cli-utils');
 
 const coreBuilder = async(config) => {
@@ -29,7 +29,7 @@ exports.builder = async function(jeliSchema, buildOptions) {
  * @param {*} fileChanged 
  */
 exports.buildByFileChanges = async function(fileChanged) {
-    const { saveApplicationView } = require('./lib/core/output');
+    const { saveApplicationView } = require('./core/output');
     helper.console.clear(`\nre-compiling ${helper.colors.green(fileChanged)}...\n`);
     const compilerObject = session.get();
     const indexObject = Object.values(compilerObject)[0];

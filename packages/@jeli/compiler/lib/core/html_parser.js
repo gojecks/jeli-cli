@@ -2,14 +2,13 @@
   * html core parser
   */
  const parser = require('html-dom-parser');
- const { parseAst } = require('./ast.generator');
+ const { parseAst, parseAstJSON } = require('./ast.generator');
  const interpolation = require('./interpolation');
  const helper = require('@jeli/cli-utils');
  const restrictedCombination = ['j-template', 'j-place', 'case', 'default'];
  const formInputs = ['select', 'input', 'textarea'];
  const standardAttributes = 'id|class|style|title|dir|lang';
  const isComponent = tagName => helper.isContain('-', tagName);
- const hasDirectives = (item, dirName) => item.directives && item.directives.some(d => d.name === dirName);
  const oneWayBinding = /\{(.*?)\}/;
  const twoWayBinding = /\@\{(.*?)\}/;
  const symbol = "ϕ";
@@ -24,7 +23,9 @@
  module.exports = function(htmlContent, componentDefinition, resolvers, component) {
      const templatesMapHolder = {};
      const templateOutletHolder = {};
-     const providers = {};
+     const providers = {
+         ViewParser: "@jeli/core"
+     };
      const errorLogs = [];
 
      /**
@@ -82,29 +83,11 @@
           * extract component
           * get directives
           */
-         if (newItem.directives) {
-             var allTransplaceable = newItem.directives.filter(item => item.transplace);
-             if (allTransplaceable.length) {
-                 var invalidIdx = restrictedCombination.indexOf(item.name);
-                 if (invalidIdx > -1) {
-                     errorLogs.push(allTransplaceable[0].name + ' cannot be used with ' + restrictedCombination[invalidIdx]);
-                 }
-
-                 if (allTransplaceable.length > 1) {
-                     errorLogs.push(allTransplaceable[0].name + ' directive cannot be used with ' + allTransplaceable[1].name + ' directive');
-                 }
-             }
-
-             if (allTransplaceable.length) {
-                 newItem.directives.splice(0, 1);
-                 /**
-                  * remove the directives prop
-                  */
-                 if (!newItem.directives.length) {
-                     delete newItem.directives;
-                 }
-                 return buildTransplaceAbleTemplates(allTransplaceable, newItem, parent);
-             }
+         if (newItem.structuralDirective) {
+             /**
+              * remove the directives prop
+              */
+             return buildStructuralDirectiveTemplates(newItem, parent);
          }
 
          switch (item.name) {
@@ -132,7 +115,7 @@
                      const option = componentDefinition.viewChild[name];
                      if (helper.is(item.refId, option.value)) {
                          prop = name;
-                     } else if (helper.is(item.name, option.value) || (option.isdir && hasDirectives(item, option.value))) {
+                     } else if (helper.is(item.name, option.value) || (option.isdir && item.directives && item.directives.hasOwnProperty(option.value))) {
                          prop = name;
                      }
                  });
@@ -179,82 +162,65 @@
                  });
 
          }
-
-         /**
-          * 
-          * @param {*} child 
-          * @param {*} formControl 
-          */
-         function attachFormControl(children, formControl) {
-             children.forEach(child => {
-                 if (child.type == 'tag') {
-                     if (formInputs.includes(child.name)) {
-                         child.attribs = child.attribs || {};
-                         child.attribs['jx-reflect-control-name'] = formControl;
-                     } else if (child.children) {
-                         attachFormControl(child.children, formControl);
-                     }
-                 }
-             });
-         }
      }
 
      /**
       * 
-      * @param {*} directive 
       * @param {*} compiledItem 
       * @param {*} parent 
       */
-     function buildTransplaceAbleTemplates(directive, compiledItem, parent) {
-         delete directive[0].transplace;
-         switch (directive[0].name) {
+     function buildStructuralDirectiveTemplates(compiledItem, parent) {
+         const definition = compiledItem.structuralDirective;
+         delete compiledItem.structuralDirective;
+         switch (definition.dirName) {
              case ('outlet'):
-                 return outletCompiler(directive[0].props.outlet.prop, compiledItem.context);
+                 return outletCompiler(definition.props.outlet.prop, compiledItem.context);
              case ('if'):
-                 return jIfCompiler();
+                 return jIfCompiler(definition, compiledItem);
              default:
-                 return createDefaultTemplate(directive[0].name);
+                 return createDefaultTemplate(definition, compiledItem);
          }
+     }
 
-         /**
-          * Default Template
-          */
-         function createDefaultTemplate(name) {
-             var item = {
-                 type: "element",
-                 name: "#comment",
-                 text: name,
-                 directives: directive,
-                 templates: {}
-             };
-
-             if (directive[0].props) {
-                 item.props = directive[0].props;
-                 delete directive[0].props;
-             }
-
-             item.templates[name] = compiledItem;
-             return item;
-         }
-
-         /**
-          * jIf template compiler
-          */
-         function jIfCompiler() {
-             const item = createDefaultTemplate(directive[0].name);
-             if (item.props) {
-                 for (var templateId in item.props) {
-                     if (typeof item.props[templateId] !== 'object') {
-                         item.templates[templateId] = ({
-                             refId: item.props[templateId]
-                         });
-                         templateCompiler(item.templates[templateId], {});
-                     }
+     /**
+      * conditional template generator
+      * @param {*} definition 
+      */
+     function jIfCompiler(definition, compiledItem) {
+         const item = createDefaultTemplate(definition, compiledItem);
+         if (item.props) {
+             for (var templateId in item.props) {
+                 if (typeof item.props[templateId] !== 'object' && !item.templates[templateId]) {
+                     item.templates[templateId] = ({
+                         refId: item.props[templateId]
+                     });
+                     templateCompiler(item.templates[templateId], {});
                  }
              }
-
-             return item;
          }
+
+         return item;
+     }
+
+     /**
+      * create AbstractTemplate Object
+      * @param {*} definition 
+      */
+     function createDefaultTemplate(definition, compiledItem) {
+         var item = {
+             type: "comment",
+             name: "#comment",
+             text: definition.dirName,
+             templates: {}
+         };
+
+         if (definition.props) {
+             item.props = definition.props;
+         }
+
+         item.templates[definition.dirName] = compiledItem;
+         _attachProviders(definition.registeredDir, item);
+         return item;
      }
 
      /**
@@ -336,16 +302,56 @@
          }
      }
 
+     function pipesProvider(pipeName, filterModel) {
+         if (!providers.hasOwnProperty(pipeName)) {
+             const deps = resolvers.getPipe(pipeName);
+             if (deps) {
+                 filterModel.push(`%${deps.fn}%`);
+                 providers[`${deps.fn}`] = deps.module;
+             } else {
+                 errorLogs.push(`Unable to resolve pipe ${pipeName}. Please include pipe and recompile application.`)
+             }
+         }
+     }
 
      /**
       * 
       * @param {*} data 
       */
      function createTextNode(data) {
+         const ast = interpolation.parser(data, pipesProvider);
+         if (ast.templates) {
+             /**
+              * pasrse ast
+              */
+             ast.templates.forEach(item => item[1].prop = expressionAst(item[1].prop))
+         }
+
          return {
              type: 'text',
-             ast: interpolation.parser(data)
+             ast
          };
+     }
+
+     /**
+      * 
+      * @param {*} expression
+      */
+     function expressionAst(expression) {
+         const regex = /[&&||]/;
+         if (helper.is('{', expression.charAt(0)))
+             return parseAstJSON(expression, true);
+         else if (helper.is('[', expression.charAt(0)) && /\[(.*)\]/.test(expression))
+             return {
+                 type: "raw",
+                 value: parseAst(expression)[0]
+             }
+         else if (regex.test(expression))
+             return helper.splitAndTrim(expression, regex).map(key => {
+                 return parseAst(key)[0];
+             });
+         else
+             return parseAst(expression)[0];
      }
 
 
@@ -371,8 +377,6 @@
          var firstCharMatcher = node.charAt(0);
          if (helper.isContain(firstCharMatcher, [':', '*', '#', '@', '{', '('])) {
              parseFirstCharMatcher(firstCharMatcher, node, value);
-         } else if (helper.isContain('jx-reflect-', node)) {
-             setObjectType('attr', node.replace('jx-reflect-', '.'), value);
          } else if (helper.isContain('attr-', node)) {
              setAttributeBinder(node, value, true);
          }
@@ -390,7 +394,7 @@
                      ast: interpolation.parser(hasValueBinding)
                  });
              } else {
-                 setObjectType('attr', helper.camelCase(node), helper.simpleArgumentParser(value));
+                 setObjectType('attr', node, helper.simpleArgumentParser(value));
              }
          }
 
@@ -400,16 +404,18 @@
           * @param {*} attrValue 
           * @param {*} objType 
           */
-         function setAttributeBinder(attrName, attrValue, once) {
+         function setAttributeBinder(attrName, attrValue, once = false) {
              const props = helper.splitAndTrim(attrName.replace('attr-', ''), '.');
              const propName = props.shift();
-             const filter = interpolation.removeFilters(attrValue);
+             const filter = interpolation.removeFilters(attrValue, pipesProvider);
              if (props.length) {
                  filter.type = props.shift();
                  filter.suffix = props.pop();
              }
              filter.once = once;
-
+             if (helper.typeOf(filter.prop, 'string')) {
+                 filter.prop = expressionAst(filter.prop);
+             }
              setObjectType('attrObservers', propName, filter);
          }
 
@@ -447,88 +453,32 @@
           */
          function addDirectives(name, value, fChar, hasBinding) {
              var isDetachedElem = helper.is(fChar, '*');
-             elementRefInstance.directives = elementRefInstance.directives || [];
              name = name.substr(1, name.length);
-             let dir = {
-                 name: helper.camelCase(name)
+             const dirName = name;
+             /**
+              * mock props for querySelector
+              */
+             const props = {
+                 name: elementRefInstance.name,
+                 attr: Object.assign({}, elementRefInstance.attr)
              };
+             props.attr[dirName] = true;
+             const registeredDir = resolvers.getDirectives(dirName, props, component);
+             if (!registeredDir.length) {
+                 errorLogs.push(`Element <${elementRefInstance.name}> does not support this attribute [${dirName}]. if [${dirName}] is a customAttribute please create and register it.`);
+                 return;
+             }
 
              if (isDetachedElem) {
-                 parseDetachDirective();
+                 parseStructuralDirective(dirName, value, elementRefInstance, registeredDir);
              } else {
-                 const ast = interpolation.removeFilters(value);
+                 const ast = interpolation.removeFilters(value, pipesProvider);
                  /**
                   * Adding the props Observer instead of adding a checker
                   */
-                 if (hasBinding) {
-                     setObjectType('props', dir.name, helper.simpleArgumentParser(ast.prop || dir.name));
-                 } else {
-                     attachChecker(ast);
-                 }
-             }
-
-             setObjectType('attr', dir.name, null);
-             const registeredDir = resolvers.getDirectives(dir.name, elementRefInstance, component);
-             if (!registeredDir.length) {
-                 errorLogs.push(`Element <${elementRefInstance.name}> does not support this attribute [${dir.name}]. if [${dir.name}] is a customAttribute please create and register it.`);
-             } else {
-                 // register to providers
-                 dir.providers = registeredDir.map(def => (providers[`'${def.fn}'`] = def.fn, def.fn));
-             }
-
-             elementRefInstance.directives[isDetachedElem ? 'unshift' : 'push'](dir);
-
-             function attachChecker(ast) {
-                 if (ast.fns) {
-                     dir.checker = ast;
-                 } else {
-                     dir.checker = helper.simpleArgumentParser(ast.prop);
-                 }
-             }
-
-             /**
-              * 
-              * @param {*} key 
-              * @param {*} props 
-              */
-             function parseDetachDirective() {
-                 let props = null;
-                 helper.splitAndTrim(value, ';').forEach(key => {
-                     if (key) {
-                         _parseProps(key);
-                     }
-                 });
-                 if (props) {
-                     dir.props = props;
-                 }
-
-                 dir.transplace = isDetachedElem;
-
-                 function _parseProps(key) {
-                     if (helper.isContain('=', key)) {
-                         const propSplt = helper.splitAndTrim(key, "=");
-                         elementRefInstance.context = elementRefInstance.context || {};
-                         elementRefInstance.context[helper.camelCase(propSplt[0])] = helper.simpleArgumentParser(propSplt[1]);
-                     } else if (helper.isContain(' as ', key)) {
-                         const propSplt = helper.splitAndTrim(key, ' as ');
-                         props = (props || {});
-                         props[helper.camelCase(`${name}-${propSplt[0]}`)] = helper.simpleArgumentParser(propSplt[1]);
-                     } else {
-                         const ast = interpolation.removeFilters(key);
-                         props = (props || {});
-                         const regExp = /\s+\w+\s/;
-                         if (typeof ast.prop === 'string' && regExp.test(ast.prop)) {
-                             const matched = ast.prop.match(regExp);
-                             const checkerSplt = helper.splitAndTrim(ast.prop, matched[0]);
-                             ast.prop = helper.simpleArgumentParser(checkerSplt[1]);
-                             props[helper.camelCase(`${name}-${matched[0].trim()}`)] = ast.fns ? ast : ast.prop;
-                             elementRefInstance.context = elementRefInstance.context || {};
-                             elementRefInstance.context[checkerSplt[0]] = '$context';
-                         } else {
-                             props[dir.name] = ast;
-                         }
-                     }
-                 }
+                 ast.prop = expressionAst(ast.prop);
+                 setObjectType('props', dirName, hasBinding ? ast : ast.prop);
+                 _attachProviders(registeredDir, elementRefInstance);
              }
          }
 
@@ -547,7 +497,8 @@
                  case ('*'):
                      if (value && value.match(interpolation.getDelimeter())) {
                          errorLogs.push(
-                             `[${node}] templating not allowed in directive binding.\n To add binding to a directive use the curly braces {${node}}`);
+                             `[${node}] templating not allowed in directive binding.\n To add binding to a directive use the curly braces {${node}}`
+                         );
                      }
 
                      addDirectives(node, value, fChar);
@@ -556,7 +507,7 @@
                       * template Node
                       */
                  case ('#'):
-                     elementRefInstance.refId = helper.camelCase(node.substring(1, node.length));
+                     elementRefInstance.refId = node.substring(1, node.length);
                      break;
                      /**
                       * Event Node
@@ -583,10 +534,7 @@
              if (helper.isContain(':', prop.charAt(0))) {
                  addDirectives(prop, value, ':', true);
                  prop = prop.substr(1, prop.length);
-             } else {
-
              }
-
              setArrayType('events', {
                  name: `${prop}Change`,
                  value: parseAst(`${value}=$event`),
@@ -601,7 +549,7 @@
           */
          function _parseEventBinding(dir) {
              const item = {
-                 name: dir.replace(/[@-]/g, ''),
+                 name: dir.replace(/[@]/g, ''),
                  value: parseAst(value)
              };
 
@@ -616,21 +564,106 @@
          /**
           * parseOneWayBinding
           */
-         function _parseOneWayBinding(dir, ) {
+         function _parseOneWayBinding(dir) {
              /**
               * set the component
               */
              var extName = oneWayBinding.exec(dir);
-             var name = helper.camelCase(extName[1]);
-             const isAttrType = helper.isContain('attr-', extName[1]);
-             if (!isAttrType && helper.isContain(name.charAt(0), [':', '*'])) {
-                 addDirectives(name, value, name.charAt(0), true);
-             } else if (elementRefInstance.isc && !isAttrType) {
-                 setObjectType('props', name, value);
+             if (!helper.isContain('attr-', extName[1])) {
+                 if (helper.isContain(extName[1].charAt(0), [':', '*']))
+                     return addDirectives(extName[1], value, extName[1].charAt(0), true);
+                 else if (elementRefInstance.isc)
+                     return setObjectType('props', extName[1], value);
+             }
+
+             setAttributeBinder(extName[1], value);
+         }
+     }
+
+     /**
+      * 
+      * @param {*} dirName 
+      * @param {*} value 
+      * @param {*} elementRefInstance 
+      * @param {*} registeredDir 
+      */
+     function parseStructuralDirective(dirName, value, elementRefInstance, registeredDir) {
+         /**
+          * validate the structuralElement
+          * make sure no combination of two structural elements
+          */
+         var invalidIdx = restrictedCombination.indexOf(dirName);
+         if (invalidIdx > -1) {
+             errorLogs.push(`${dirName} cannot be used with ${restrictedCombination[invalidIdx]}`);
+             return;
+         }
+
+         if (elementRefInstance.structuralDirective) {
+             errorLogs.push(`${elementRefInstance.structuralDirective.dirName} directive cannot be used with ${dirName} directive`);
+             return;
+         }
+
+         let props = null;
+         helper.splitAndTrim(value, ';').forEach(_parseProps);
+         elementRefInstance.structuralDirective = {
+             registeredDir,
+             dirName,
+             props
+         };
+
+         function _parseProps(key) {
+             if (helper.isContain('=', key)) {
+                 const propSplt = helper.splitAndTrim(key, "=");
+                 elementRefInstance.context = elementRefInstance.context || {};
+                 elementRefInstance.context[propSplt[0]] = expressionAst(propSplt[1]);
+             } else if (helper.isContain(' as ', key)) {
+                 const propSplt = helper.splitAndTrim(key, ' as ');
+                 props = (props || {});
+                 props[helper.camelCase(`${dirName}-${propSplt[0]}`)] = expressionAst(propSplt[1]);
              } else {
-                 setAttributeBinder(extName[1], value);
+                 const ast = interpolation.removeFilters(key, pipesProvider);
+                 props = (props || {});
+                 if (typeof ast.prop === 'string') {
+                     astStringParser(ast, props);
+                 } else {
+                     props[dirName] = ast;
+                 }
              }
          }
+
+         /**
+          * concat syntax to form a variable
+          * e.g for in value = forIn
+          * @param {*} ast 
+          * @param {*} props 
+          */
+         function astStringParser(ast, props) {
+             const regExp = /\s+\w+\s/;
+             if (regExp.test(ast.prop)) {
+                 const matched = ast.prop.match(regExp);
+                 const checkerSplt = helper.splitAndTrim(ast.prop, matched[0]);
+                 ast.prop = expressionAst(checkerSplt[1]);
+                 props[helper.camelCase(`${dirName}-${matched[0].trim()}`)] = ast;
+                 elementRefInstance.context = elementRefInstance.context || {};
+                 elementRefInstance.context[checkerSplt[0]] = '$context';
+             } else {
+                 ast.prop = expressionAst(ast.prop);
+                 props[dirName] = ast;
+             }
+         }
+     }
+
+     /**
+      * 
+      * @param {*} providers 
+      * @param {*} element 
+      */
+     function _attachProviders(definition, element) {
+         element.providers = element.providers || [];
+         definition.forEach(def => {
+             providers[`${def.fn}`] = def.obj.module;
+             element.providers.push(`%${def.fn}%`);
+         });
      }
 
      /**
@@ -642,8 +675,8 @@
              errorLogs.push(`Element <${element.name}> cannot call itself, this will result to circular referencing`);
          }
 
-         const definition = resolvers.getElement(element.name, component)[0];
-         if (!definition) {
+         const definition = resolvers.getElement(element.name, component);
+         if (!definition.length) {
              errorLogs.push(`Cannot find Element <${element.name}>, if this is a custom Element please register it`);
              return;
          }
@@ -652,7 +685,7 @@
          if (element.attr) {
              Object.keys(element.attr).forEach(prop => {
                  if (!helper.isContain(prop, standardAttributes) &&
-                     (!definition.obj.props || !definition.obj.props.hasOwnProperty(prop)) &&
+                     (!definition[0].obj.props || !definition[0].obj.props.hasOwnProperty(prop)) &&
                      !_isDirective(prop)
                  ) {
                      errorLogs.push(`Element <${element.name}> does not support this property [${prop}]`);
@@ -664,8 +697,7 @@
           * 
           * attachProvider
           */
-         providers[`'${element.name}'`] = definition.fn;
-
+         _attachProviders(definition, element);
          /**
           * 
           * @param {*} prop 
@@ -675,9 +707,32 @@
          }
      }
 
+     EventHandlerTypes = {
+         change: ['checkbox', 'radio', 'select-one', 'select-multiple', 'select'],
+         input: ['text', 'password', 'textarea', 'email', 'url', 'week', 'time', 'search', 'tel', 'range', 'number', 'month', 'datetime-local', 'date', 'color']
+     };
+
+     function getEventType(el) {
+         var type = "input";
+         if (inarray(el.type, EventHandlerTypes.input)) {
+             type = 'input';
+         } else if (inarray(el.type, EventHandlerTypes.change)) {
+             type = 'change';
+         }
+
+         return type;
+     }
+
+     function canSetValue(element) {
+         isequal('input', EventHandler.getEventType(this.nativeElement));
+     }
+
+
 
      var parsedContent = parser(htmlContent, {
-         normalizeWhitespace: true
+         normalizeWhitespace: true,
+         lowerCaseAttributeNames: false,
+         decodeEntities: true
      }).map(contentParser).filter(content => content);
 
      return {

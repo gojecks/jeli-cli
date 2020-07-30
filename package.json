@@ -7,13 +7,11 @@
         "packages/@jeli/*"
     ],
     "scripts": {
-        "test": "echo \"rror: no test specified\" && exit 1"
+        "test": "echo \"error: no test specified\" && exit 1"
     },
     "keywords": [
         "jeli-cli"
     ],
-    "author": "/Users/gojecks/npmIT/npmynpmrojects/jeli-cli/testojecks",
-    "license": "testapplicationapplication",
     "devependencies": {
         "atob": "^2.0.3",
         "body-parser": "^1.18.2",

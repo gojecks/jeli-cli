@@ -2,44 +2,122 @@ const inquirer = require('inquirer');
 const fs = require('fs-extra');
 const path = require('path');
 const promptJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'prompt.json')));
+const jeliUtils = require('@jeli/cli-utils');
 
 
+const isValid = (condition, state) => {
+    return condition.some(quest => {
+        const keys = Object.keys(quest);
+        return keys.filter(key => {
+            return jeliUtils.is(state[key], quest[key])
+        }).length == keys.length;
+    });
+}
 
-/**
- * Project prompt method
- */
-exports.projectPrompt = async(name, targetDir, availablePkgMgr) => {
-    const projectData = await this.promptStatic('projectType');
-    if (projectData.variant === 'application') {
-        promptJson.main.push.apply(promptJson.main, promptJson.application);
+const validateFolder = async(answer, targetDir) => {
+    /**
+     * override option
+     */
+    if (answer.dirOption == 2) {
+        jeliUtils.console.write(`\nRemoving ${jeliUtils.colors.cyan(targetDir)}...`)
+        await fs.remove(targetDir);
     }
-    const mainData = await this.promptStatic('main');
-    promptJson.packageManager[0].choices = Object.keys(availablePkgMgr);
-    const packageManager = await this.promptStatic('packageManager');
-    Object.assign(projectData, mainData, packageManager);
-    projectData.year = new Date().getFullYear();
-    projectData.name = name;
-    projectData.targetDir = targetDir;
-    projectData.selector = `${projectData.prefix}-${projectData.name}`;
+    /**
+     * cancel option
+     */
+    else if (answer.dirOption == 0) {
+        jeliUtils.abort('Please select a different folder');
+    }
+}
+
+exports.answers = async(questions, projectData) => {
+    for (const question of questions) {
+        if (!question.cond || isValid(question.cond, projectData)) {
+            const answer = await this.promptStatic(question.promptId, question.extend);
+            if (question.validate) {
+                await question.validate(answer);
+            }
+
+            Object.assign(projectData, answer);
+        }
+    }
 
     return projectData;
 }
 
+/**
+ * Project prompt method
+ */
+exports.projectPrompt = async(projectExists, name, targetDir, availablePkgMgr) => {
+    const dirExist = fs.existsSync(targetDir);
+    const projectData = await this.answers([{
+            promptId: "directoyExist",
+            cond: [{
+                dirExist: true
+            }],
+            validate: answer => validateFolder(answer, targetDir)
+        },
+        {
+            promptId: 'projectType'
+        },
+        {
+            promptId: 'main',
+            cond: [{
+                projectExists: false
+            }, {
+                dirOption: 2,
+                projectExists: true
+            }]
+        },
+        {
+            promptId: "sourceRoot",
+            cond: [{
+                projectExists: false
+            }, {
+                dirOption: 2,
+                projectExists: true
+            }],
+            extend: [{
+                default: name + '-src'
+            }]
+        },
+        {
+            cond: [{
+                variant: "application"
+            }],
+            promptId: "application"
+        },
+        {
+            promptId: "prefix"
+        },
+        {
+            cond: [{
+                projectExists: false
+            }, {
+                dirOption: 2,
+                projectExists: true
+            }],
+            promptId: 'packageManager',
+            extend: [{
+                choices: Object.keys(availablePkgMgr)
+            }]
+        }
+    ], { dirExist, projectExists });
 
-exports.confirmDirectoryOption = async directory => {
-    return await inquirer.prompt([{
-        name: 'action',
-        type: 'list',
-        message: `Directory ${directory} already exists. Pick an action:`,
-        choices: [
-            { name: 'Overwrite', value: 2 },
-            { name: 'Merge', value: 1 },
-            { name: 'Cancel', value: 0 }
-        ]
-    }])
-};
+    projectData.year = new Date().getFullYear();
+    projectData.name = name;
+    projectData.targetDir = targetDir;
+    projectData.selector = `${projectData.prefix}-${projectData.name}`;
+    projectData.jeliviewentry = `<${projectData.selector}></${projectData.selector}>`;
+    projectData.sourceroot = projectData.sourceroot || name;
 
-exports.promptStatic = async promptId => {
+    return projectData;
+}
+
+exports.promptStatic = async(promptId, add) => {
+    if (add) {
+        add.forEach((content, idx) => Object.assign(promptJson[promptId][idx], content));
+    }
     return await inquirer.prompt(promptJson[promptId]);
 }
 

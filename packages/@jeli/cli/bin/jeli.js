@@ -36,17 +36,16 @@ program
 program
     .command('create <app-name>')
     .description('create a new project powered by jeli-cli')
-    .option('--folder <folder>', 'specify folder name')
-    .option('-f, --force', 'Overwrite target directory if it exists')
+    .option('--force', 'Overwrite target directory if it exists')
+    .option('-x, --proxy', 'Use specified proxy when creating project.')
     .action((name, cmd) => {
         const options = jeliUtils.cleanArgs(cmd)
         if (minimist(process.argv.slice(3))._.length > 1) {
             jeliUtils.console.warn('\n Info: You provided more than one argument. The first one will be used as the app\'s name, the rest are ignored.')
         }
 
-        const createAction = require('../lib/create');
-        createAction(name, options);
-    })
+        require('../lib/create')(name, options);
+    });
 
 program
     .command('build [entry]')
@@ -81,9 +80,24 @@ program
     .command('info')
     .description('print debugging information about your environment')
     .action(_ => {
-        const { cliInnfo } = require('../lib/info');
+        const { cliInfo } = require('../lib/info');
         jeliUtils.console.write(jeliUtils.chalk.bold('\nEnvironment Info:'));
-        cliInnfo();
+        cliInfo();
+    })
+
+program
+    .command('remove <project-name>')
+    .description('removes project from workspace')
+    .action((entry, cmd) => {
+        require('../lib/remove')(entry, jeliUtils.cleanArgs(cmd));
+    })
+
+program
+    .command('new <type> <path-name>')
+    .option('-p, --project', 'Specify project name if multiple exists in workspace. (default: defaultProject)')
+    .description('generate a new (Element|Directive|Service|Module)')
+    .action((type, pathName, cmd) => {
+        require('../lib/generator')(type.toLowerCase(), pathName, jeliUtils.cleanArgs(cmd))
     })
 
 // program
@@ -95,27 +109,7 @@ program
 //         require('../lib/add')(plugin, minimist(process.argv.slice(3)))
 //     })
 
-// program
-//     .command('ui')
-//     .description('start and open the jeli-cli ui')
-//     .option('-H, --host <host>', 'Host used for the UI server (default: localhost)')
-//     .option('-p, --port <port>', 'Port used for the UI server (by default search for available port)')
-//     .option('-D, --dev', 'Run in dev mode')
-//     .option('--quiet', `Don't output starting messages`)
-//     .option('--headless', `Don't open browser on start and output port`)
-//     .action((cmd) => {
-//         checkNodeVersion('>=8.6', 'jeli ui')
-//         require('../lib/ui')(cleanArgs(cmd))
-//     })
 
-// program
-//     .command('init <template> <app-name>')
-//     .description('generate a project from a remote template (legacy API, requires @jeli/cli-init)')
-//     .option('-c, --clone', 'Use git clone when fetching remote template')
-//     .option('--offline', 'Use cached template')
-//     .action(() => {
-//         loadCommand('init', '@jeli/cli-init')
-//     })
 
 // program
 //     .command('config [value]')

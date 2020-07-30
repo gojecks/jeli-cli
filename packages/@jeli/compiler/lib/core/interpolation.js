@@ -11,30 +11,25 @@ function escapeRegExp(s) {
  * 
  * @param {*} delimeter 
  */
-function getDelimeter() {
-    return defaultTemplateExp;
-}
+exports.getDelimeter = () => defaultTemplateExp;
 
 /**
  * 
  * @param {*} ast 
  */
-function parser(ast) {
-    ast = getTemplateKeys(ast);
+exports.parser = (ast, pipesProvider) => {
+    ast = this.getTemplateKeys(ast);
     var binding = {
         rawValue: ast.data
     };
 
     if (ast.exprs.length) {
-        binding.templates = ast.exprs.map(function(key, idx) {
+        binding.templates = ast.exprs.map((key, idx) => {
             var observe = key.charAt(0) !== ":";
             if (observe) {
-                binding._ = 1;
+                binding.$ = true;
             }
-            return ({
-                replace: delimeter.join(idx),
-                exp: removeFilters(key)
-            });
+            return [delimeter.join(idx), exports.removeFilters(key, pipesProvider)];
         });
     }
 
@@ -45,7 +40,7 @@ function parser(ast) {
  * 
  * @param {*} data 
  */
-function getTemplateKeys(data) {
+exports.getTemplateKeys = (data) => {
     const exprs = [];
     let idx = 0;
     data = data.replace(defaultTemplateExp, (match, key) => {
@@ -57,7 +52,7 @@ function getTemplateKeys(data) {
         data,
         exprs
     };
-}
+};
 
 
 
@@ -65,7 +60,7 @@ function getTemplateKeys(data) {
  * remove filters from string
  * @param {*} key 
  */
-function removeFilters(key) {
+exports.removeFilters = (key, pipesProvider) => {
     var filter = { prop: "" };
     var hasFilter = helper.removeSingleOperand(key, '[|]', '^', 'g').split('^');
     filter.prop = helper.simpleArgumentParser(hasFilter[0].trim());
@@ -78,17 +73,11 @@ function removeFilters(key) {
         var AllFilters = hasFilter.slice(1);
         for (var i in AllFilters) {
             var hasExpression = AllFilters[i].split(':').map(key => helper.removeSingleQuote(key.trim()));
-            filter.fns.push(hasExpression.shift());
+            const filterName = hasExpression.shift();
+            pipesProvider(filterName, filter.fns);
             filter.args.push(hasExpression);
         }
     }
 
     return filter;
-}
-
-module.exports = {
-    getDelimeter,
-    parser,
-    getTemplateKeys,
-    removeFilters
-}
+};

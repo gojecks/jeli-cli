@@ -14,7 +14,7 @@
             "name": "description",
             "type": "input",
             "message": "Enter project description:",
-            "default": ""
+            "default": "Demo Project"
         },
         {
             "name": "author",
@@ -43,14 +43,20 @@
                 { "name": "yes", "value": true },
                 { "name": "no", "value": false }
             ]
-        },
-        {
-            "name": "prefix",
-            "type": "input",
-            "message": "enter application prefix:",
-            "default": "app"
         }
     ],
+    "sourceRoot": [{
+        "name": "sourceroot",
+        "type": "input",
+        "message": "What folder should your source code live in?",
+        "default": "[name]"
+    }],
+    "prefix": [{
+        "name": "prefix",
+        "type": "input",
+        "message": "enter naming convention:",
+        "default": "app"
+    }],
     "application": [{
         "name": "router",
         "type": "list",
@@ -73,5 +79,14 @@
         "message": "select a packageManager:",
         "default": "npm",
         "choices": []
+    }],
+    "directoyExist": [{
+        "name": "dirOption",
+        "type": "list",
+        "message": "Directory already exists. Pick an action:",
+        "choices": [
+            { "name": "Overwrite", "value": 2 },
+            { "name": "Cancel", "value": 0 }
+        ]
     }]
 }

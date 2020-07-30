@@ -2,7 +2,6 @@
     "name": "@jeli/compiler",
     "version": "0.0.1",
     "description": "jeli-js compiler",
-    "main": "index.js",
     "directories": {
         "test": "test"
     },
@@ -32,6 +31,14 @@
         "escodegen": "^1.12.0",
         "uglify-js": "^3.6.0",
         "lodash.template": "^4.5.0",
-        "@jeli/cli-utils": "0.0.1"
+        "@jeli/cli-utils": "0.0.1",
+        "css": "^3.0.0",
+        "node-sass": "^4.14.1"
+    },
+    "bin": {
+        "jeli-compiler": "bin/compiler.js"
+    },
+    "engines": {
+        "node": ">=8.9"
     }
 }
