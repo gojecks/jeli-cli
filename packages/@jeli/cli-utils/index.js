@@ -63,10 +63,10 @@ exports.simpleArgumentParser = (expression) => {
         isNum = Number(expression);
     if (typeof expression === 'number') {
         return expression;
-    } else if (typeof possibleMatcher !== "undefined") {
-        return possibleMatcher;
     } else if (expression && !isNaN(isNum)) {
         return isNum;
+    } else if (typeof possibleMatcher !== "undefined") {
+        return possibleMatcher;
     } else if (this.isContain(expression.charAt(0), '[{')) {
         try {
             return JSON.parse(expression);
@@ -225,7 +225,7 @@ exports.ternary = (a, b, c) => this.is(a, b) ? a : c;
  * @param {*} content 
  */
 exports.stringifyContent = (content) => {
-    content = content.replace(new RegExp(quote, 'g'), '\\' + quote);
+    content = content.replace(/\\/g, '\\\\').replace(new RegExp(quote, 'g'), '\\' + quote);
     content = quote + content.replace(/\n/g, '') + quote;
 
     return content;

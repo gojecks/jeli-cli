@@ -20,14 +20,14 @@ exports.getDelimeter = () => defaultTemplateExp;
 exports.parser = (ast, pipesProvider) => {
     ast = this.getTemplateKeys(ast);
     var binding = {
-        rawValue: ast.data
+        text: ast.data
     };
 
     if (ast.exprs.length) {
         binding.templates = ast.exprs.map((key, idx) => {
-            var observe = key.charAt(0) !== ":";
-            if (observe) {
-                binding.$ = true;
+            binding.once = key.charAt(0) === ":";
+            if (binding.once) {
+                key = key.slice(1);
             }
             return [delimeter.join(idx), exports.removeFilters(key, pipesProvider)];
         });
@@ -43,10 +43,14 @@ exports.parser = (ast, pipesProvider) => {
 exports.getTemplateKeys = (data) => {
     const exprs = [];
     let idx = 0;
-    data = data.replace(defaultTemplateExp, (match, key) => {
-        exprs.push(key);
-        return delimeter.join(idx++);
-    });
+    try {
+        data = data.replace(defaultTemplateExp, (match, key) => {
+            exprs.push(key);
+            return delimeter.join(idx++);
+        });
+    } catch (e) {
+        throw new Error(`unable to parse template ${data}`);
+    }
 
     return {
         data,
@@ -72,12 +76,13 @@ exports.removeFilters = (key, pipesProvider) => {
         //@sample : dateTime filter
         var AllFilters = hasFilter.slice(1);
         for (var i in AllFilters) {
-            var hasExpression = AllFilters[i].split(':').map(key => helper.removeSingleQuote(key.trim()));
-            const filterName = hasExpression.shift();
-            pipesProvider(filterName, filter.fns);
-            filter.args.push(hasExpression);
+            pipesProvider(AllFilters[i].trim(), filter);
         }
     }
 
     return filter;
 };
+
+exports.hasTemplateBinding = function(template) {
+    return defaultTemplateExp.test(template);
+}

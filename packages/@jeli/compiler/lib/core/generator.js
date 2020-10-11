@@ -1,7 +1,7 @@
 const helper = require('@jeli/cli-utils');
 const htmlParser = require('./html_parser');
 const { CoreQuerySelector } = require('./query_selector');
-const { outputApplicationFiles, outputLibraryFiles, pushStyle } = require('./output');
+const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges } = require('./output');
 const { findTokenInGlobalImports, isExportedToken, getPipeProvider } = require('./compilerobject');
 const { attachViewSelectorProviders } = require('./view.provier');
 const annotationProps = ['name', 'selector', 'exportAs', 'module'];
@@ -9,24 +9,24 @@ const annotationProps = ['name', 'selector', 'exportAs', 'module'];
 /**
  * 
  * @param {*} compilerObject 
- * @param {*} loader 
  * @param {*} entry 
+ * @param {*} fileChanged 
  */
-async function CoreGenerator(compilerObject, loader, entry) {
+async function CoreGenerator(compilerObject, entry, changes) {
     let scriptBody = '';
     /**
      * 
      * @param {*} definition 
      */
-    function compile(definition) {
+    function compile(definition, filePath) {
         switch (definition.type.toLowerCase()) {
             case ('service'):
             case ('provider'):
             case ('pipe'):
-                _resolveDependecies(compilerObject.services[definition.fn], definition.fn, definition.filePath);
-                definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(compilerObject.services[definition.fn], annotationProps)};`);
-                quoteFix(annotationProps, compilerObject.services[definition.fn]);
-                if (compilerObject.services[definition.fn].static) {
+                _resolveDependecies(compilerObject.Service[definition.fn], definition.fn, filePath);
+                definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(compilerObject.Service[definition.fn], annotationProps)};`);
+                quoteFix(annotationProps, compilerObject.Service[definition.fn]);
+                if (compilerObject.Service[definition.fn].static) {
                     definition.annotations.push(`${definition.fn}.annotations.instance = ${definition.fn};`);
                 }
                 break;
@@ -40,25 +40,25 @@ async function CoreGenerator(compilerObject, loader, entry) {
                 const style = obj.style;
                 delete obj.template;
                 delete obj.style;
-                _resolveDependecies(obj, definition.fn, definition.filePath);
+                _resolveDependecies(obj, definition.fn, filePath);
                 definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(obj, annotationProps)};`);
                 quoteFix(annotationProps, obj);
                 if (helper.is(definition.type, 'Element')) {
                     if (template) {
                         const parsedHtml = htmlParser(template, obj, compilerResolver, definition.fn);
                         if (parsedHtml.errorLogs.length) {
-                            helper.console.header(`TemplateCompilerError -> Element<${definition.fn}> : ${definition.filePath}`);
+                            helper.console.header(`TemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
                             parsedHtml.errorLogs.forEach(helper.console.error);
-                            helper.abort();
                         }
-                        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ new ViewParser(${attachViewProviders(definition.filePath, parsedHtml)}, ${JSON.stringify(parsedHtml.templatesMapHolder)}) /** template loader **/;`);
+                        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ new ViewParser(${attachViewProviders(filePath, parsedHtml)}, ${JSON.stringify(parsedHtml.templatesMapHolder)}) /** template loader **/;`);
                     }
 
                     // style parser
                     if (style) {
                         pushStyle({
                             name: definition.fn,
-                            style
+                            style,
+                            elementFilePath: filePath
                         });
                         // definition.annotations.push(`${definition.fn}.style = ${helper.stringifyContent(style)};`);
                     }
@@ -68,7 +68,13 @@ async function CoreGenerator(compilerObject, loader, entry) {
                 /**
                  * compile @config and @initializers
                  */
-                definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(compilerObject.modules[definition.fn])};`);
+                if (compilerObject.jModule[definition.fn].rootElement) {
+                    definition.annotations.push(`${definition.fn}.rootElement = ${compilerObject.jModule[definition.fn].rootElement};`)
+                }
+
+                if (compilerObject.jModule[definition.fn].requiredModules) {
+                    definition.annotations.push(`!function(){/** bootstrap module**/${writeAnnot(compilerObject.jModule[definition.fn].requiredModules)}.forEach(function(_module){ _module()});\n}();`);
+                }
                 break;
         }
 
@@ -130,20 +136,14 @@ async function CoreGenerator(compilerObject, loader, entry) {
                 const service = compilerResolver.getService(name, filePath);
                 if (!service && !config.optional) {
                     helper.console.error(`Unable to resolve depenedecy: ${helper.colors.yellow(name)} -> ${helper.colors.yellow(fn)} in ${helper.colors.yellow(filePath)}`);
-                    helper.abort();
                 }
 
                 if (service) {
                     if (service.DI && service.DI.hasOwnProperty(fn)) {
                         helper.console.error(`Found circular dependency: ${helper.colors.yellow(fn)} -> ${helper.colors.yellow(name)} in ${helper.colors.yellow(filePath)}`);
-                        helper.abort();
                     }
 
-                    if (!service.internal) {
-                        config.factory = name;
-                    } else {
-                        config.internal = true;
-                    }
+                    config.factory = name;
                 }
             });
         }
@@ -171,26 +171,57 @@ async function CoreGenerator(compilerObject, loader, entry) {
 
         if (moduleObj.requiredModules) {
             moduleObj.requiredModules.forEach(function(moduleName) {
-                _compileOnBootStrapFns(compilerObject.modules[moduleName], state);
+                _compileOnBootStrapFns(compilerObject.jModule[moduleName], state);
             });
         }
     }
 
-    const compilerResolver = {
-        getFn: directiveConfiguration => directiveConfiguration && directiveConfiguration.map(def => def.fn),
-        getElement: (selector, component) => {
-            return CoreQuerySelector(compilerObject, 'Element', selector, component);
-        },
-        getDirectives: (selector, element, component) => {
-            return CoreQuerySelector(compilerObject, 'Directive', selector, component, element);
-        },
-        getModule: moduleName => compilerObject.modules[moduleName],
-        getService: (serviceName, filePath) => {
-            if (compilerObject.services.hasOwnProperty(serviceName)) {
-                return compilerObject.services[serviceName];
+    function generateScriptBody() {
+        return Object.keys(compilerObject.output.modules)
+            .reduce((accum, filePath) => scriptGeneratorParser(accum, filePath), [])
+            .concat(compilerObject.output.global).join('\n')
+
+        /**
+         * 
+         * @param {*} output 
+         * @param {*} filePath 
+         */
+        function scriptGeneratorParser(output, filePath) {
+            if (changes && changes.filePath && !helper.is(changes.filePath, filePath)) {
+                return output;
             }
 
-            const inGlobalImports = findTokenInGlobalImports(serviceName, compilerObject, 'services');
+            const element = compilerObject.output.modules[filePath];
+            if (element.annotations) {
+                for (const annotation of element.annotations) {
+                    element.source.push(compile(annotation, filePath));
+                }
+            }
+
+            if (isLib) {
+                output.push(element.source.join(''));
+            }
+
+            return output;
+        }
+
+    }
+
+    const compilerResolver = {
+        getFn: directiveConfiguration => directiveConfiguration && directiveConfiguration.map(def => def.fn),
+        getElement: (selector, component, module) => {
+            return CoreQuerySelector(compilerObject, 'Element', selector, component);
+        },
+        getDirectives: (selector, element, component, module) => {
+            return CoreQuerySelector(compilerObject, 'Directive', selector, component, element);
+        },
+        getModule: moduleName => compilerObject.jModule[moduleName],
+        getService: (serviceName, filePath) => {
+            if (compilerObject.Service.hasOwnProperty(serviceName)) {
+                return compilerObject.Service[serviceName];
+            }
+
+            const inGlobalImports = findTokenInGlobalImports(serviceName, compilerObject, 'Service');
             if (inGlobalImports) {
                 return inGlobalImports[serviceName] || {
                     internal: true
@@ -203,35 +234,24 @@ async function CoreGenerator(compilerObject, loader, entry) {
             return getPipeProvider(pipeName, compilerObject)
         }
     };
-
-    scriptBody = compilerObject.output.global.map(element => {
-        if (helper.typeOf(element, 'object')) {
-            const compiledModule = compile(element);
-            if (compilerObject.output.modules.hasOwnProperty(element.filePath)) {
-                compilerObject.output.modules[element.filePath].push(compiledModule);
-                return '';
-            } else {
-                return compiledModule;
-            }
-        } else {
-            return element;
-        }
-    }).filter(item => !!item).join('\n');
+    const isLib = helper.is('library', compilerObject.options.type);
+    scriptBody = generateScriptBody();
     /**
      * save files
      */
-    if (helper.is('library', compilerObject.options.type)) {
+    if (isLib) {
         await outputLibraryFiles(compilerObject, scriptBody, entry);
     } else {
-        await outputApplicationFiles(compilerObject, scriptBody);
+        await outputApplicationFiles(compilerObject, scriptBody, changes);
     }
 }
 
-
-
-module.exports = async function(compilerObject, loader) {
-    loader.spinner.stop();
+module.exports = async function(compilerObject, changes) {
     for (const name in compilerObject) {
-        await CoreGenerator(compilerObject[name], loader, name);
+        if (changes && changes.isStyles) {
+            styleChanges(compilerObject[name], changes);
+        } else {
+            await CoreGenerator(compilerObject[name], name, changes);
+        }
     }
 };

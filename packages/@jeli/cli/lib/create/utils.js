@@ -38,7 +38,12 @@ const updateJeliSchema = async(projectData, dir) => {
             json.projects[projectData.name].output = {
                 folder: "dist/",
                 view: "index.html",
-                entryFile: "main.js"
+                styles: [`${projectData.sourceroot}styles.scss`],
+                entryFile: "main.js",
+                copy: [{
+                    src: "src/assets/",
+                    dest: "dist/assets/"
+                }]
             }
         } else {
             json.projects[projectData.name].output = {
@@ -68,7 +73,6 @@ const updateJeliSchema = async(projectData, dir) => {
 const updatePackageJSON = async(projectData) => {
     const filePath = path.join(projectData.targetDir, 'package.json');
     const json = JSON.parse(fs.readFileSync(filePath), 'utf8');
-    json.devDependencies["node-sass"] = "^4.9.0";
     if (projectData.doc) {
         json.devDependencies["esdoc"] = "^1.1.0";
         json.devDependencies["esdoc-standard-plugin"] = "^1.0.0";

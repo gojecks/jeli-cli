@@ -52,10 +52,18 @@ function _query(queryElements, element) {
  * @param {*} queries 
  * @param {*} selector 
  * @param {*} element 
+ * @param {*} moduleList 
  */
-function _CoreSelector(registeredElement, queries, selector, element) {
+function _CoreSelector(registeredElement, queries, selector, element, moduleList) {
     const _runQuery = name => {
         const dir = registeredElement[name];
+        /**
+         * check first if module matches
+         */
+        if (!moduleList.includes(dir.module)) {
+            return false;
+        }
+
         if (queries.hasOwnProperty(dir.selector) && element) {
             return _query(queries[dir.selector], element);
         }
@@ -82,33 +90,60 @@ function _CoreSelector(registeredElement, queries, selector, element) {
  * @param {*} element 
  */
 exports.CoreQuerySelector = (compilerObject, type, selector, componentName, element) => {
-    const found = _CoreSelector(compilerObject[type], compilerObject.queries, selector, element);
-
+    const startModule = compilerObject['Element'][componentName].module;
+    const found = [];
+    search(compilerObject, startModule);
     if (!element && found.length) {
         return found;
     }
 
     /**
+     * 
+     * @param {*} reqModule 
+     */
+    function search(meta, moduleName) {
+        const moduleList = [moduleName].concat(meta.jModule[moduleName].requiredModules || []);
+        found.push.apply(found, _CoreSelector(meta[type], meta.queries, selector, element, moduleList));
+    }
+
+    /**
      * find in requiredModules
      */
-    const parentModule = compilerObject.modules[compilerObject['Element'][componentName].module];
+    const parentModule = compilerObject.jModule[startModule];
+    const isResolvedModule = [];
     if (parentModule.requiredModules) {
-        parentModule.requiredModules.forEach(moduleName => {
+        findInRequiredModules(parentModule.requiredModules);
+    }
+
+    function findInRequiredModules(requiredModules) {
+        for (const moduleName of requiredModules) {
             /**
              * check if module is registered to the current compiler
              */
-            if (!compilerObject.modules.hasOwnProperty(moduleName)) {
-                const libModules = findTokenInGlobalImports(moduleName, compilerObject);
-                found.push.apply(found, _CoreSelector(libModules[type], libModules.queries, selector, element));
+            if (isResolvedModule.includes(moduleName)) {
+                break;
             }
-        });
+
+            if (compilerObject.jModule.hasOwnProperty(moduleName)) {
+                const childModule = compilerObject.jModule[moduleName];
+                if (childModule.requiredModules && childModule.requiredModules.length)
+                    findInRequiredModules(compilerObject.jModule[moduleName].requiredModules);
+            } else {
+                const libModules = findTokenInGlobalImports(moduleName, compilerObject);
+                found.push.apply(found, search(libModules, moduleName));
+            }
+
+            isResolvedModule.push(moduleName);
+        }
     }
 
+    isResolvedModule.length = 0;
+
     return found.sort((a, b) => {
-        if (a.obj.registerAs) {
+        if (a.obj.resolve) {
             return -1;
         }
-        if (b.obj.registerAs && !a.obj.registerAs) {
+        if (b.obj.resolve && !a.obj.resolve) {
             return 1;
         }
         // a must be equal to b

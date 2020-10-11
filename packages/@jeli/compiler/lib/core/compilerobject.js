@@ -1,11 +1,18 @@
 const fs = require('fs-extra');
 const glob = require('glob');
 const { generateAstSource } = require('./ast.generator');
+const path = require('path');
+const supportedFiles = ['.js', '.jeli'];
 /**
  * cache for holding externalMetaData
  */
 const _metaDataCache = {};
 let __compilerInstance = null;
+const removeExtPath = p => {
+    const ext = path.extname(p);
+    return (ext || supportedFiles.includes(ext)) ? p.substring(0, p.lastIndexOf(ext)) : p;
+};
+
 /**
  * 
  * @param {*} fileName 
@@ -28,7 +35,7 @@ exports.expandFilePath = (entryFile, sourceRoot) => {
  * 
  * @param {*} options 
  */
-async function CompilerObject(options) {
+async function CompilerObject(options, buildOptions) {
     options = Object.assign({
         sourceRoot: '',
         type: 'library',
@@ -62,7 +69,7 @@ async function CompilerObject(options) {
              */
             if (key.indexOf('/*') > -1) {
                 fs.readdirSync(options.resolve.alias[key])
-                    .forEach(name => options.resolve.alias[key.replace('*', name)] = `${options.resolve.alias[key]}${name}`);
+                    .forEach(name => options.resolve.alias[removeExtPath(key.replace('*', name))] = `${options.resolve.alias[key]}${name}`);
                 delete options.resolve.alias[key];
             }
         });
@@ -71,24 +78,31 @@ async function CompilerObject(options) {
     let outputFiles = {};
 
     function outPutObject(fileEntry) {
-        Object.defineProperty(this, 'options', {
-            get: function() {
-                return options;
+        Object.defineProperties(this, {
+            options: {
+                get: function() {
+                    return options;
+                }
+            },
+            buildOptions: {
+                get: () => buildOptions
             }
         });
 
         this.files = {};
         this.globalImports = {};
         this.Directive = {};
-        this.queries = {};
         this.Element = {};
+        this.jModule = {};
+        this.Service = {};
+        this.queries = {};
         this.output = {
             modules: {},
-            global: []
+            global: [],
+            templates: {},
+            styles: {}
         };
         this.required = {};
-        this.modules = {};
-        this.services = {};
         this.exports = [];
         this.entryFile = fileEntry;
     }
@@ -107,7 +121,7 @@ async function CompilerObject(options) {
             }
         }
     } else if (options.output.entryFile) {
-        outputFiles['.'] = new outPutObject(options.output.entryFile);
+        outputFiles[options.output.entryFile] = new outPutObject(options.output.entryFile);
     }
 
 
@@ -154,13 +168,13 @@ exports.findNotExported = (moduleName, specifiers, source) => {
 }
 
 exports.getPipeProvider = (pipeName, compilerObject) => {
-    let foundPipe = find(compilerObject.services);
+    let foundPipe = find(compilerObject.Service);
     /**
      * find in imported modules
      */
     if (!foundPipe) {
         for (const lib in _metaDataCache) {
-            foundPipe = find(_metaDataCache[lib].services);
+            foundPipe = find(_metaDataCache[lib].Service);
             if (foundPipe) {
                 return {
                     fn: foundPipe,
@@ -171,14 +185,14 @@ exports.getPipeProvider = (pipeName, compilerObject) => {
     } else {
         return {
             fn: foundPipe,
-            module: compilerObject.services[foundPipe].module
+            module: compilerObject.Service[foundPipe].module || 'root'
         }
     }
 
     return null;
 
     function find(services) {
-        return Object.keys(services)
+        return services && Object.keys(services)
             .find(providerName => (services[providerName].name === pipeName))
     }
 }

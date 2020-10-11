@@ -15,17 +15,6 @@ function checkNodeVersion(wanted, id) {
 
 checkNodeVersion(requiredVersion, '@jeli/cli');
 const minimist = require('minimist')
-
-// enter debug mode when creating test repo
-// if (
-//     slash(process.cwd()).indexOf('/packages/test') > 0 && (
-//         fs.existsSync(path.resolve(process.cwd(), '../@jeli')) ||
-//         fs.existsSync(path.resolve(process.cwd(), '../../@jeli'))
-//     )
-// ) {
-//     process.env.jeli_CLI_DEBUG = true
-// }
-
 const program = require('commander');
 const cliCommander = require('../lib/utils/commander');
 
@@ -52,6 +41,7 @@ program
     .description('name of project to build as specified in jeli.json configuration')
     .option('-f, --cwd <workspace>', 'Change current working directory')
     .option('-n, --name <name>', 'library name to build, defaults to all in config')
+    .option('--prod', 'build application for production')
     .action((entry, cmd) => {
         cliCommander('build', '@jeli/cli-dev').build(entry, jeliUtils.cleanArgs(cmd))
     })
@@ -100,60 +90,6 @@ program
         require('../lib/generator')(type.toLowerCase(), pathName, jeliUtils.cleanArgs(cmd))
     })
 
-// program
-//     .command('add <plugin> [pluginOptions]')
-//     .description('install a plugin and invoke its generator in an already created project')
-//     .option('--registry <url>', 'Use specified npm registry when installing dependencies (only for npm)')
-//     .allowUnknownOption()
-//     .action((plugin) => {
-//         require('../lib/add')(plugin, minimist(process.argv.slice(3)))
-//     })
-
-
-
-// program
-//     .command('config [value]')
-//     .description('inspect and modify the config')
-//     .option('-g, --get <path>', 'get value from option')
-//     .option('-s, --set <path> <value>', 'set option value')
-//     .option('-d, --delete <path>', 'delete option from config')
-//     .option('-e, --edit', 'open config with default editor')
-//     .option('--json', 'outputs JSON result only')
-//     .action((value, cmd) => {
-//         require('../lib/config')(value, cleanArgs(cmd))
-//     })
-
-// program
-//     .command('outdated')
-//     .description('(experimental) check for outdated jeli cli service / plugins')
-//     .option('--next', 'Also check for alpha / beta / rc versions when upgrading')
-//     .action((cmd) => {
-//         require('../lib/outdated')(cleanArgs(cmd))
-//     })
-
-// program
-//     .command('upgrade [plugin-name]')
-//     .description('(experimental) upgrade jeli cli service / plugins')
-//     .option('-t, --to <version>', 'Upgrade <package-name> to a version that is not latest')
-//     .option('-f, --from <version>', 'Skip probing installed plugin, assuming it is upgraded from the designated version')
-//     .option('-r, --registry <url>', 'Use specified npm registry when installing dependencies')
-//     .option('--all', 'Upgrade all plugins')
-//     .option('--next', 'Also check for alpha / beta / rc versions when upgrading')
-//     .action((packageName, cmd) => {
-//         require('../lib/upgrade')(packageName, cleanArgs(cmd))
-//     })
-
-// program
-//     .command('migrate [plugin-name]')
-//     .description('(experimental) run migrator for an already-installed cli plugin')
-//     // TODO: use `requiredOption` after upgrading to commander 4.x
-//     .option('-f, --from <version>', 'The base version for the migrator to migrate from')
-//     .action((packageName, cmd) => {
-//         require('../lib/migrate')(packageName, cleanArgs(cmd))
-//     })
-
-
-
 // output help information on unknown commands
 program
     .arguments('<command>')
@@ -169,24 +105,6 @@ program.on('--help', () => {
 })
 
 program.commands.forEach(c => c.on('--help', () => jeliUtils.console.write()))
-
-// enhance common error messages
-// const enhanceErrorMessages = require('../lib/util/enhanceErrorMessages')
-
-// enhanceErrorMessages('missingArgument', argName => {
-//   return `Missing required argument ${chalk.yellow(`<${argName}>`)}.`
-// })
-
-// enhanceErrorMessages('unknownOption', optionName => {
-//   return `Unknown option ${chalk.yellow(optionName)}.`
-// })
-
-// enhanceErrorMessages('optionMissingArgument', (option, flag) => {
-//   return `Missing required argument for option ${chalk.yellow(option.flags)}` + (
-//     flag ? `, got ${chalk.yellow(flag)}` : ``
-//   )
-// })
-
 program.parse(process.argv)
 if (!process.argv.slice(2).length) {
   program.outputHelp();

@@ -45,15 +45,16 @@ exports.build = async function build(entry, options, pushEvent) {
     if (options.watch) {
         const watchFolders = ['node_modules', jeliSchemaJSON.projects[entry].sourceRoot];
         let pending = false;
-        watch(watchFolders, async(path) => {
+        await watch(watchFolders, async(path, event) => {
             if (!pending) {
                 pushEvent('compiling');
                 pending = true;
                 try {
-                    await jeliCompiler.buildByFileChanges(path);
+                    await jeliCompiler.buildByFileChanges(path, event);
                     pushEvent('reload');
-                    jeliUtils.console.clear(jeliUtils.colors.green('compilation successful.'));
+                    jeliUtils.console.success(jeliUtils.colors.green('compilation successful.'));
                 } catch (e) {
+                    console.log(e);
                     jeliUtils.console.error('compilation error.');
                     pushEvent('error');
                 } finally {
@@ -69,7 +70,7 @@ exports.build = async function build(entry, options, pushEvent) {
  * @param {*} entry 
  * @param {*} options 
  */
-exports.server = async function(entry, options) {
+exports.serve = async function(entry, options) {
     validateSchema(options.cwd);
     const { genServerOptions, attachListeners, cleanup } = require('./lib/utils/server');
     const os = require('os');
@@ -131,7 +132,7 @@ exports.server = async function(entry, options) {
         /**
          * trigger the build instance
          */
-        build(null, {
+        exports.build(null, {
             watch: true
         }, event => server.pushEvent(event));
     });

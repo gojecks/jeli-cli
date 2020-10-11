@@ -13,7 +13,7 @@ module.exports = async(folders, callback) => {
 
     watcher.on('all', (event, path) => {
         if (folders.includes(path.split('/')[0])) {
-            callback(path);
+            callback(path, event);
         }
     });
 };

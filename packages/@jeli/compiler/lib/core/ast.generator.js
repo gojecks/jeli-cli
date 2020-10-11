@@ -25,11 +25,14 @@ const ASTExpression = {
     EMPTY: "EmptyStatement",
     UNARY: "UnaryExpression",
     NEW: "NewExpression",
-    THIS: "ThisExpression"
+    THIS: "ThisExpression",
+    LOGICAL: "LogicalExpression"
 };
 
 const ASTIdentifier = 'Identifier';
 const ASTDefaultSpecifier = "ImportDefaultSpecifier";
+const ASTNamespaceSpecifier = "ImportNamespaceSpecifier";
+const ASTLiteralType = "Literal";
 
 function deduceSourceType(source) {
     return ['export ', 'import '].some(expimp => helper.isContain(expimp, source)) ? 'module' : 'script';
@@ -60,11 +63,18 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
         type: ast.sourceType
     };
 
-    for (var i = 0; i < ast.body.length; i++) {
+    var i = 0;
+    for (; i < ast.body.length; i++) {
         const expression = ast.body[i];
         switch (expression.type) {
             case (ASTDeclarations.IMPORT):
-                currentProcess.imports.push(getValueFromAst(expression));
+                const importItem = getValueFromAst(expression);
+                const existsource = currentProcess.imports.find(item => item.source === importItem.source);
+                if (existsource) {
+                    existsource.specifiers.push.apply(existsource.specifiers, importItem.specifiers);
+                } else {
+                    currentProcess.imports.push(importItem);
+                }
                 break;
             case (ASTDeclarations.EXPORT_NAMED):
             case (ASTDeclarations.EXPORT_ALL):
@@ -79,13 +89,24 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                                 exported: expression.declaration.declarations[0].id.name
                             });
                             sourceOutlet.scripts.push(expression.declaration);
+                            pushDeclarations(expression.declaration.declarations[0].id.name, 'vars');
                             break;
                         case (ASTDeclarations.FUNCTION):
+                            var name = (expression.declaration.id || { name: 'default' }).name;
                             currentProcess.exports.push({
-                                local: (expression.declaration.id || { name: 'default' }).name,
-                                exported: (expression.declaration.id || { name: 'default' }).name
+                                local: name,
+                                exported: helper.is(expression.type, ASTDeclarations.EXPORT_DEFAULT) ? 'default' : name
                             });
                             sourceOutlet.scripts.push(expression.declaration);
+                            if (name !== 'default') {
+                                pushDeclarations(name, 'fns');
+                            }
+                            break;
+                        case (ASTIdentifier):
+                            currentProcess.exports.push({
+                                local: expression.declaration.name,
+                                exported: 'default'
+                            });
                             break;
                     };
                 } else if (expression.specifiers) {
@@ -107,10 +128,11 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                 if (isAnnotationStatement(expression)) {
                     // found Annotations
                     const impl = getFunctionImpl(ast.body, i, currentProcess.exports);
+                    const properties = expression.expression.arguments[0];
                     sourceOutlet.annotations.push({
                         impl,
                         type: expression.expression.callee.name,
-                        definitions: generateProperties(expression.expression.arguments[0].properties, true)
+                        definitions: properties ? generateProperties(properties.properties, true) : {}
                     });
                     i = i + impl.length;
                 } else {
@@ -119,11 +141,29 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                 break;
             default:
                 sourceOutlet.scripts.push(expression);
+                if (helper.is(ASTDeclarations.VARIABLE, expression.type)) {
+                    expression.declarations.map(decl => pushDeclarations(decl.id.name, 'vars'));
+                } else if (helper.is(ASTDeclarations.VARIABLE, expression.type)) {
+                    pushDeclarations(decl.id.name, 'fns')
+                }
                 break;
         }
     }
 
     return sourceOutlet;
+
+    /**
+     * 
+     * @param {*} name 
+     * @param {*} type 
+     */
+    function pushDeclarations(name, type) {
+        if (currentProcess.declarations[type].includes(name)) {
+            throw new Error(`${type}<${name}> already declared, cannot be re-declare`);
+        }
+
+        currentProcess.declarations[type].push(name);
+    }
 }
 
 function isAnnotationStatement(expression) {
@@ -210,15 +250,15 @@ function getValueFromAst(expression, addQuote, scriptMode) {
                 expr
             });
         case (ASTIdentifier):
-            return addQuote ? `'${expression.name}'` : expression.name;
+            return scriptMode && addQuote ? `'${expression.name}'` : expression.name;
         case (ASTExpression.MEMBER):
             return getNameSpaceFromAst(expression, [], addQuote);
         case (ASTExpression.CONDITIONAL):
             return {
                 type: "ite",
                 test: getValueFromAst(expression.test),
-                cons: getValueFromAst(expression.consequent, true),
-                alt: getValueFromAst(expression.alternate, true)
+                cons: getValueFromAst(expression.consequent),
+                alt: getValueFromAst(expression.alternate)
             };
         case (ASTExpression.ASSIGNMENT):
             return {
@@ -228,6 +268,7 @@ function getValueFromAst(expression, addQuote, scriptMode) {
             };
             break;
         case (ASTExpression.BINARY):
+        case (ASTExpression.LOGICAL):
             return {
                 type: "bin",
                 left: getValueFromAst(expression.left),
@@ -242,7 +283,7 @@ function getValueFromAst(expression, addQuote, scriptMode) {
             const namespaces = getNameSpaceFromAst(expression.callee, [], addQuote);
             const item = {
                 type: addQuote ? "'call'" : "call",
-                args: getArguments(expression.arguments, addQuote),
+                args: getArguments(expression.arguments, false),
                 fn: namespaces.pop()
             };
 
@@ -264,18 +305,20 @@ function getValueFromAst(expression, addQuote, scriptMode) {
                 args: getArguments(expression.arguments, addQuote)
             };
         case (ASTDeclarations.IMPORT):
+            const specifiers = (expression.specifiers || []);
             return ({
-                specifiers: (expression.specifiers || []).map(specifier => {
+                specifiers: specifiers.map(specifier => {
                     return {
                         local: specifier.local.name,
                         imported: specifier.imported ? specifier.imported.name : specifier.local.name
                     };
                 }),
-                default: expression.specifiers && expression.specifiers.length && helper.is(expression.specifiers[0].type, ASTDefaultSpecifier),
+                default: specifiers.length && helper.is(expression.specifiers[0].type, ASTDefaultSpecifier),
+                nameSpace: specifiers.length && helper.is(expression.specifiers[0].type, ASTNamespaceSpecifier),
                 source: expression.source.value
             });
         default:
-            if (addQuote && expression.raw != expression.value)
+            if (!scriptMode && expression.raw != expression.value)
                 return {
                     type: 'raw',
                     value: expression.value
@@ -291,7 +334,10 @@ function getValueFromAst(expression, addQuote, scriptMode) {
  * @param {*} addQuote 
  */
 function getArguments(args, addQuote) {
-    return args.map(item => getValueFromAst(item, addQuote))
+    return args.map(item => {
+        const arg = getValueFromAst(item, addQuote);
+        return helper.is(ASTExpression.ARRAY, item.type) ? { arg } : arg;
+    });
 }
 
 /**
@@ -317,7 +363,11 @@ function getNameSpaceFromAst(ast, list, addQuote) {
     }
 
     if (ast.property) {
-        list.push(ast.property.name);
+        if (ast.computed) {
+            list.push(getNameSpaceFromAst(ast.property, [], addQuote))
+        } else {
+            list.push(ast.property.name);
+        }
     }
 
     if (addQuote) {
@@ -374,4 +424,73 @@ exports.escogen = (syntax) => {
             }
         }
     });
+};
+
+/**
+ * 
+ * @param {*} ast 
+ */
+exports.findDeclarations = function(ast) {
+    var funcDecls = [];
+    var globalVarDecls = [];
+    var funcStack = [];
+
+    function visitEachAstNode(root, enter, leave) {
+        function visit(node) {
+            function isSubNode(key) {
+                var child = node[key];
+                if (child === null) return false;
+                var ty = typeof child;
+                if (ty !== 'object') return false;
+                if (child.constructor === Array) return (key !== 'range');
+                if (key === 'loc') return false;
+                if ('type' in child) {
+                    if (child.type in esprima.Syntax) return true;
+                    debugger;
+                    throw new Error('unexpected');
+                } else { return false; }
+            }
+            enter(node);
+            var keys = Object.keys(node);
+            var subNodeKeys = keys.filter(isSubNode);
+            for (var i = 0; i < subNodeKeys.length; i++) {
+                var key = subNodeKeys[i];
+                visit(node[key]);
+            }
+            leave(node);
+        }
+        visit(root);
+    }
+
+    function myEnter(node) {
+        if (node.type === 'FunctionDeclaration') {
+            var current = {
+                name: node.id.name,
+                params: node.params.map(function(p) { return p.name; }),
+                variables: []
+            }
+            funcDecls.push(current);
+            funcStack.push(current);
+        }
+        if (node.type === 'VariableDeclaration') {
+            var foundVarNames = node.declarations.map(function(d) { return d.id.name; });
+            if (funcStack.length === 0) {
+                globalVarDecls = globalVarDecls.concat(foundVarNames);
+            } else {
+                var onTopOfStack = funcStack[funcStack.length - 1];
+                onTopOfStack.variables = onTopOfStack.variables.concat(foundVarNames);
+            }
+        }
+    }
+
+    function myLeave(node) {
+        if (node.type === 'FunctionDeclaration') {
+            funcStack.pop();
+        }
+    }
+    visitEachAstNode(ast, myEnter, myLeave);
+    return {
+        vars: globalVarDecls,
+        funcs: funcDecls
+    };
 }

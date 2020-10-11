@@ -1,9 +1,11 @@
 const helper = require('@jeli/cli-utils');
-const { getPipeProvider } = require('./compilerobject');
 
 exports.attachViewSelectorProviders = (providers, compilerObject, imports) => {
     return Object.keys(providers).map(providerName => {
-        attachToImportMapping(providers[providerName], providerName, compilerObject, imports);
+        if (providers[providerName] === 'root') {
+
+        } else
+            attachToImportMapping(providers[providerName], providerName, compilerObject, imports);
         return providerName;
     });
 }
@@ -12,7 +14,7 @@ exports.attachViewSelectorProviders = (providers, compilerObject, imports) => {
  * Attach the providers to the importMapping
  */
 function attachToImportMapping(moduleName, providerName, compilerObject, imports) {
-    if (compilerObject.modules.hasOwnProperty(moduleName)) {
+    if (compilerObject.jModule.hasOwnProperty(moduleName)) {
         Object.keys(compilerObject.files)
             .forEach(path => {
                 if (compilerObject.files[path].exports.some(item => item.exported === moduleName)) {

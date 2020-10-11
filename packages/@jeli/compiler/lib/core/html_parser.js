@@ -11,7 +11,12 @@
  const isComponent = tagName => helper.isContain('-', tagName);
  const oneWayBinding = /\{(.*?)\}/;
  const twoWayBinding = /\@\{(.*?)\}/;
- const symbol = "ϕ";
+ const selectorTypes = {
+     '.': 'class',
+     '#': 'id',
+     '[': 'attr'
+ };
+ const resolvedFilters = {};
 
  /**
   * 
@@ -68,6 +73,16 @@
           */
          if (item.attribs) {
              Object.keys(item.attribs).forEach(node => attributeParser(node, item.attribs[node], newItem));
+             /**
+              * remove unmapped props
+              */
+             if (newItem.props) {
+                 Object.keys(newItem.props).forEach(prop => {
+                     if (helper.is(newItem.props[prop], '@!')) {
+                         delete newItem.props[prop];
+                     }
+                 });
+             }
          }
 
          /**
@@ -97,8 +112,8 @@
                  newItem.type = 'place';
                  if (newItem.attr && newItem.attr.selector) {
                      var firstChar = newItem.attr.selector.charAt(0);
-                     var selector = firstChar === '.' ? 'class' : firstChar === '#' ? 'id' : null;
-                     newItem.selector = [selector, selector ? newItem.attr.selector.split(/[#.]/)[1] : newItem.attr.selector];
+                     var selector = selectorTypes[firstChar] || null;
+                     newItem.selector = [selector, newItem.attr.selector.replace(/[\[\].#]/g, '')];
                      delete newItem.attr;
                  }
                  break;
@@ -113,18 +128,16 @@
              Object.keys(componentDefinition.viewChild)
                  .forEach(name => {
                      const option = componentDefinition.viewChild[name];
-                     if (helper.is(item.refId, option.value)) {
+                     const castedValue = option.value.replace(/\'/g, '');
+                     if (helper.is(item.refId, castedValue)) {
                          prop = name;
-                     } else if (helper.is(item.name, option.value) || (option.isdir && item.directives && item.directives.hasOwnProperty(option.value))) {
+                     } else if (helper.is(item.name, castedValue) || (option.isdir && item.directives && item.directives.hasOwnProperty(castedValue))) {
                          prop = name;
                      }
                  });
 
              if (prop) {
-                 item.vc = {
-                     prop,
-                     parent: componentDefinition.selector
-                 }
+                 item.vc = [prop, componentDefinition.selector];
              }
          }
      }
@@ -194,7 +207,7 @@
                      item.templates[templateId] = ({
                          refId: item.props[templateId]
                      });
-                     templateCompiler(item.templates[templateId], {});
+                     templateCompiler(item.templates[templateId], null);
                  }
              }
          }
@@ -229,7 +242,7 @@
       * @param {*} parent 
       */
      function templateCompiler(item, parent) {
-         if (parent.name && parent.isc) {
+         if (parent && parent.name && parent.isc) {
              /**
               * attach template
               */
@@ -242,7 +255,7 @@
              }
              delete templateOutletHolder[item.refId];
          } else if (templatesMapHolder[item.refId]) {
-             Object.assign(templatesMapHolder[item.refId], item);
+             Object.assign((parent ? templatesMapHolder[item.refId] : item), (parent ? item : templatesMapHolder[item.refId]));
              delete templatesMapHolder[item.refId];
          } else {
              templatesMapHolder[item.refId] = item;
@@ -302,23 +315,40 @@
          }
      }
 
-     function pipesProvider(pipeName, filterModel) {
-         if (!providers.hasOwnProperty(pipeName)) {
+     /**
+      * 
+      * @param {*} filter 
+      * @param {*} filterModel 
+      */
+     function pipesProvider(filter, filterModel) {
+         let pipeName = filter;
+         const separatorIndex = filter.indexOf(':');
+         if (separatorIndex > -1) {
+             pipeName = filter.substr(0, separatorIndex);
+             filterModel.args.push(filter.substr(separatorIndex + 1, filter.length).split(';').map(expressionAst));
+         }
+
+         if (!resolvedFilters.hasOwnProperty(pipeName)) {
              const deps = resolvers.getPipe(pipeName);
              if (deps) {
-                 filterModel.push(`%${deps.fn}%`);
+                 resolvedFilters[pipeName] = deps;
+                 filterModel.fns.push(`%${deps.fn}%`);
                  providers[`${deps.fn}`] = deps.module;
              } else {
-                 errorLogs.push(`Unable to resolve pipe ${pipeName}. Please include pipe and recompile application.`)
+                 errorLogs.push(`Unable to resolve pipe <${helper.colors.yellow(pipeName)}>. Please include pipe and recompile application.`)
              }
+         } else {
+             filterModel.fns.push(`%${resolvedFilters[pipeName].fn}%`);
+             providers[`${resolvedFilters[pipeName].fn}`] = resolvedFilters[pipeName].module;
          }
      }
 
      /**
       * 
       * @param {*} data 
+      * @param {*} isAttr 
       */
-     function createTextNode(data) {
+     function createTextNode(data, isAttr) {
          const ast = interpolation.parser(data, pipesProvider);
          if (ast.templates) {
              /**
@@ -326,8 +356,7 @@
               */
              ast.templates.forEach(item => item[1].prop = expressionAst(item[1].prop))
          }
-
-         return {
+         return isAttr ? ast : {
              type: 'text',
              ast
          };
@@ -338,20 +367,30 @@
       * @param {*} expression
       */
      function expressionAst(expression) {
-         const regex = /[&&||]/;
-         if (helper.is('{', expression.charAt(0)))
-             return parseAstJSON(expression, true);
-         else if (helper.is('[', expression.charAt(0)) && /\[(.*)\]/.test(expression))
-             return {
-                 type: "raw",
-                 value: parseAst(expression)[0]
-             }
-         else if (regex.test(expression))
-             return helper.splitAndTrim(expression, regex).map(key => {
-                 return parseAst(key)[0];
-             });
-         else
-             return parseAst(expression)[0];
+         if (!helper.typeOf(expression, 'string')) {
+             return expression;
+         }
+
+         let ast;
+         try {
+             if (helper.is('{', expression.charAt(0)))
+                 ast = parseAstJSON(expression);
+             else if (/^\[(.*)\]$/.test(expression)) {
+                 let parsed;
+                 try {
+                     parsed = new Function(`return ${expression}`)();
+                 } catch (e) { console.log(e); }
+                 ast = {
+                     type: "raw",
+                     value: parsed
+                 }
+             } else
+                 ast = parseAst(expression)[0];
+         } catch (e) {
+             errorLogs.push(helper.colors.white(`${e.message} -> ${expression}`))
+         }
+
+         return ast;
      }
 
 
@@ -385,17 +424,11 @@
           */
          else if (helper.isContain('data-', node)) {
              var propName = helper.camelCase(node.replace('data-', ''));
-             setObjectType('data', propName, value || propName);
+             setObjectType(elementRefInstance, 'data', propName, value || propName);
+         } else if (interpolation.hasTemplateBinding(value)) {
+             setObjectType(elementRefInstance, 'attrObservers', node, createTextNode(value, true));
          } else {
-             var hasValueBinding = interpolation.getTemplateKeys(value);
-             if (hasValueBinding.exprs.length) {
-                 setArrayType('attrObservers', {
-                     name: node,
-                     ast: interpolation.parser(hasValueBinding)
-                 });
-             } else {
-                 setObjectType('attr', node, helper.simpleArgumentParser(value));
-             }
+             setObjectType(elementRefInstance, 'attr', node, helper.simpleArgumentParser(value));
          }
 
          /**
@@ -405,6 +438,10 @@
           * @param {*} objType 
           */
          function setAttributeBinder(attrName, attrValue, once = false) {
+             if (interpolation.hasTemplateBinding(attrValue)) {
+                 return errorLogs.push(`templating not allowed in binding segment ${attrName}=${attrValue}`);
+             }
+
              const props = helper.splitAndTrim(attrName.replace('attr-', ''), '.');
              const propName = props.shift();
              const filter = interpolation.removeFilters(attrValue, pipesProvider);
@@ -416,33 +453,9 @@
              if (helper.typeOf(filter.prop, 'string')) {
                  filter.prop = expressionAst(filter.prop);
              }
-             setObjectType('attrObservers', propName, filter);
+             setObjectType(elementRefInstance, 'attrObservers', propName, filter);
          }
 
-         /**
-          * 
-          * @param {*} prop 
-          * @param {*} name 
-          * @param {*} value 
-          */
-         function setObjectType(prop, name, value) {
-             if (!elementRefInstance[prop]) {
-                 elementRefInstance[prop] = {};
-             }
-             elementRefInstance[prop][name] = value;
-         }
-
-         /**
-          * 
-          * @param {*} name 
-          * @param {*} item 
-          */
-         function setArrayType(name, item) {
-             if (!elementRefInstance[name]) {
-                 elementRefInstance[name] = [];
-             }
-             elementRefInstance[name].push(item);
-         }
 
          /**
           * 
@@ -468,17 +481,11 @@
                  errorLogs.push(`Element <${elementRefInstance.name}> does not support this attribute [${dirName}]. if [${dirName}] is a customAttribute please create and register it.`);
                  return;
              }
-
              if (isDetachedElem) {
                  parseStructuralDirective(dirName, value, elementRefInstance, registeredDir);
              } else {
-                 const ast = interpolation.removeFilters(value, pipesProvider);
-                 /**
-                  * Adding the props Observer instead of adding a checker
-                  */
-                 ast.prop = expressionAst(ast.prop);
-                 setObjectType('props', dirName, hasBinding ? ast : ast.prop);
-                 _attachProviders(registeredDir, elementRefInstance);
+                 setObjectType(elementRefInstance, 'props', dirName, value, hasBinding, true);
+                 _attachProviders(registeredDir, elementRefInstance, true);
              }
          }
 
@@ -535,7 +542,7 @@
                  addDirectives(prop, value, ':', true);
                  prop = prop.substr(1, prop.length);
              }
-             setArrayType('events', {
+             setArrayType(elementRefInstance, 'events', {
                  name: `${prop}Change`,
                  value: parseAst(`${value}=$event`),
                  custom: true
@@ -548,17 +555,21 @@
           * @param {*} dir 
           */
          function _parseEventBinding(dir) {
-             const item = {
-                 name: dir.replace(/[@]/g, ''),
-                 value: parseAst(value)
-             };
+             try {
+                 const item = {
+                     name: dir.replace(/[@]/g, ''),
+                     value: parseAst(value)
+                 };
 
-             if (helper.isContain('-', dir)) {
-                 item.custom = true;
+                 if (helper.isContain('-', dir)) {
+                     item.custom = true;
+                 }
+
+                 // set the item
+                 setArrayType(elementRefInstance, 'events', item);
+             } catch (e) {
+                 errorLogs.push(helper.colors.white(`${e.message} -> ${value}`));
              }
-
-             // set the item
-             setArrayType('events', item);
          }
 
          /**
@@ -573,10 +584,15 @@
                  if (helper.isContain(extName[1].charAt(0), [':', '*']))
                      return addDirectives(extName[1], value, extName[1].charAt(0), true);
                  else if (elementRefInstance.isc)
-                     return setObjectType('props', extName[1], value);
+                     return setObjectType(elementRefInstance, 'props', extName[1], value || extName[1], true, true);
              }
 
-             setAttributeBinder(extName[1], value);
+             /**
+              * attach attribute binder only if value is defined
+              */
+             if (value) {
+                 setAttributeBinder(extName[1], value);
+             }
          }
      }
 
@@ -611,19 +627,19 @@
              props
          };
 
-         function _parseProps(key) {
-             if (helper.isContain('=', key)) {
+         function _parseProps(key, idx) {
+             if (idx && helper.isContain('=', key)) {
                  const propSplt = helper.splitAndTrim(key, "=");
                  elementRefInstance.context = elementRefInstance.context || {};
                  elementRefInstance.context[propSplt[0]] = expressionAst(propSplt[1]);
-             } else if (helper.isContain(' as ', key)) {
+             } else if (idx && helper.isContain(' as ', key)) {
                  const propSplt = helper.splitAndTrim(key, ' as ');
                  props = (props || {});
                  props[helper.camelCase(`${dirName}-${propSplt[0]}`)] = expressionAst(propSplt[1]);
              } else {
                  const ast = interpolation.removeFilters(key, pipesProvider);
                  props = (props || {});
-                 if (typeof ast.prop === 'string') {
+                 if (helper.typeOf(ast.prop, 'string')) {
                      astStringParser(ast, props);
                  } else {
                      props[dirName] = ast;
@@ -655,14 +671,72 @@
 
      /**
       * 
-      * @param {*} providers 
-      * @param {*} element 
+      * @param {*} elementRefInstance 
+      * @param {*} prop 
+      * @param {*} name 
+      * @param {*} value 
+      * @param {*} binding 
+      * @param {*} parse 
       */
-     function _attachProviders(definition, element) {
+     function setObjectType(elementRefInstance, prop, name, value, binding, parse) {
+         if (elementRefInstance.props && helper.is(elementRefInstance.props[name], '@!')) {
+             prop = 'props';
+         }
+
+         /**
+          * check if an observer was already registered
+          * and the observer is not registered to attribute prop
+          */
+         if (elementRefInstance.attrObservers && elementRefInstance.attrObservers.hasOwnProperty(name) && !helper.is(prop, 'attr')) {
+             value = elementRefInstance.attrObservers[name];
+             delete elementRefInstance.attrObservers[name];
+         }
+
+         if (!elementRefInstance[prop]) {
+             elementRefInstance[prop] = {};
+         }
+
+         if (parse) {
+             value = interpolation.removeFilters(value, pipesProvider);
+             /**
+              * Adding the props Observer instead of adding a checker
+              */
+             value.prop = expressionAst(value.prop);
+             value = binding ? value : value.prop;
+         }
+         elementRefInstance[prop][name] = value;
+     }
+
+     /**
+      * 
+      * @param {*} name 
+      * @param {*} item 
+      */
+     function setArrayType(elementRefInstance, name, item) {
+         if (!elementRefInstance[name]) {
+             elementRefInstance[name] = [];
+         }
+         elementRefInstance[name].push(item);
+     }
+
+     /**
+      * 
+      * @param {*} definition 
+      * @param {*} element 
+      * @param {*} attachProps 
+      */
+     function _attachProviders(definition, element, attachProps) {
          element.providers = element.providers || [];
          definition.forEach(def => {
              providers[`${def.fn}`] = def.obj.module;
              element.providers.push(`%${def.fn}%`);
+             if (attachProps) {
+                 for (const prop in def.obj.props) {
+                     if (!element.props.hasOwnProperty(def.obj.props[prop].value || prop)) {
+                         setObjectType(element, 'props', prop, '@!');
+                     }
+                 };
+             }
          });
      }
 
@@ -682,13 +756,13 @@
          }
 
          // validate the props
-         if (element.attr) {
-             Object.keys(element.attr).forEach(prop => {
-                 if (!helper.isContain(prop, standardAttributes) &&
-                     (!definition[0].obj.props || !definition[0].obj.props.hasOwnProperty(prop)) &&
-                     !_isDirective(prop)
+         const props = Object.keys(element.attr || {}).concat(Object.keys(element.props || {}));
+         if (props.length) {
+             props.forEach(prop => {
+                 if (!helper.isContain(prop, standardAttributes) && !definition[0].obj.props &&
+                     !isPropertyValueMap(prop, definition[0].obj.props) && !_isDirective(prop)
                  ) {
-                     errorLogs.push(`Element <${element.name}> does not support this property [${prop}]`);
+                     errorLogs.push(`Element <${helper.colors.yellow(element.name)}> does not support this property {${helper.colors.yellow(prop)}}`);
                  }
              });
          }
@@ -704,6 +778,19 @@
           */
          function _isDirective(prop) {
              return (element.directives || []).some(dir => helper.is(dir.name, prop));
+         }
+
+         /**
+          * 
+          * @param {*} prop 
+          * @param {*} obj 
+          */
+         function isPropertyValueMap(prop, obj) {
+             if (obj.hasOwnProperty(prop)) {
+                 return true;
+             }
+
+             return Object.keys(obj).some(key => obj[key].value && obj[key].value === prop);
          }
      }
 

@@ -1,6 +1,6 @@
-import { bootStrap } from '@jeli/core';
+import { bootStrapApplication } from '@jeli/core';
 import { AppModule } from './app/app.module';
 
-bootStrap(AppModule, function() {
+bootStrapApplication(AppModule, function() {
     console.log('App initialized');
 });

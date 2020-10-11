@@ -9,6 +9,7 @@
       var protocol = window.location.protocol === 'http:' ? 'ws://' : 'wss://';
       var address = protocol + window.location.host + window.location.pathname + '/ws';
       var socket = new WebSocket(address);
+      var modal = null;
       socket.onmessage = function(msg) {
         switch (msg.data.toUpperCase()) {
           case ('RELOAD'):
@@ -25,7 +26,11 @@
       console.log('Live reload enabled.');
 
       function createErrorWindow() {
-        var modal = document.createElement('div');
+        // remove the modal if it already exists
+        if (modal) {
+          modal.parentNode.removeChild(modal);
+        }
+        modal = document.createElement('div');
         modal.style.width = "100%";
         modal.style.height = "100%";
         modal.style.background = "#000";
@@ -35,6 +40,7 @@
         modal.style.top = "0px";
         document.body.appendChild(modal);
         modal.innerHTML = '<h2 style="color:red;padding:5%">Error in compilation</h2>';
+
       }
     })();
   }
