@@ -1,6 +1,6 @@
 {
     "name": "@jeli/compiler",
-    "version": "0.0.1",
+    "version": "0.0.0-PLACEHOLDER",
     "description": "jeli-js compiler",
     "directories": {
         "test": "test"
@@ -32,7 +32,7 @@
         "escodegen": "^1.12.0",
         "uglify-js": "^3.6.0",
         "lodash.template": "^4.5.0",
-        "@jeli/cli-utils": "0.0.1",
+        "@jeli/cli-utils": "0.0.0-PLACEHOLDER",
         "css": "^3.0.0",
         "node-sass": "^4.14.1"
     },

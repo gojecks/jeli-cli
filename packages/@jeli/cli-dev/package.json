@@ -1,6 +1,6 @@
 {
     "name": "@jeli/cli-dev",
-    "version": "0.0.1",
+    "version": "0.0.0-PLACEHOLDER",
     "description": "Jeli CLI Devtool",
     "main": "index.js",
     "scripts": {
@@ -25,7 +25,7 @@
         "secure-compare": "3.0.1",
         "chokidar": "3.3.1",
         "faye-websocket": "^0.11.3",
-        "@jeli/compiler": "0.0.1",
-        "@jeli/cli-utils": "0.0.1"
+        "@jeli/compiler": "0.0.0-PLACEHOLDER",
+        "@jeli/cli-utils": "0.0.0-PLACEHOLDER"
     }
 }

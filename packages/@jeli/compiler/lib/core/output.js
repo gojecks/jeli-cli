@@ -83,7 +83,7 @@ exports.writeFile = async function(filePath, data) {
         helper.abort(e);
     } finally {
         // Print a success message.
-        helper.console.success(`generated file "${ path.basename(filePath) }" size: (${helper.colors.yellow(Math.floor(data.length/1024)+ 'kb')}) `);
+        helper.console.success(`generated file "${ path.basename(filePath) }" size: (${helper.colors.yellow((data.length/1024).toFixed(2)+ 'kb')}) `);
     }
 }
 
