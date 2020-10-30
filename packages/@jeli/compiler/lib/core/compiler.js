@@ -32,7 +32,7 @@
          return await validateImports(importedItem, currentInstance.files[filePath].exports, filePath, parentPath);
      };
 
-     loader.spinner.changeText(`compiling file ->${filePath}`);
+     helper.writeline(filePath);
      /**
       * add the resolved filePath to currentInstance for reference
       */

@@ -1,5 +1,6 @@
 const colors = require('colors/safe');
 const _clearConsole = require('console-clear');
+const readline = require('readline');
 const chalk = require('chalk');
 const $isBooleanValue = 'true | false | 1 | 0';
 const quote = '\'';
@@ -273,6 +274,12 @@ exports.console = {
     success: msg => console.log(colors.green(msg)),
     setInitial: msg => initialMsg.push(msg),
     clear: exports.clearConsole
+};
+
+exports.writeline = text => {
+    readline.clearLine(process.stdout);
+    readline.cursorTo(process.stdout, 0);
+    process.stdout.write(text);
 };
 
 exports.chalk = chalk;
