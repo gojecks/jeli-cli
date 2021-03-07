@@ -270,7 +270,7 @@ exports.outputApplicationFiles = async function(compilerObject, scriptBody, chan
          * obfuscate code if prod flag is sent
          */
         if (compilerObject.buildOptions && compilerObject.buildOptions.prod) {
-            helper.console.log('obfuscating code...');
+            helper.console.write('obfuscating code...');
             const uglifiedScript = obfuscate(script);
             if (!uglifiedScript.error) {
                 script = uglifiedScript.code;

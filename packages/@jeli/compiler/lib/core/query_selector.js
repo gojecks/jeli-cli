@@ -102,6 +102,7 @@ exports.CoreQuerySelector = (compilerObject, type, selector, componentName, elem
      * @param {*} reqModule 
      */
     function search(meta, moduleName) {
+        if (!meta || !meta.jModule[moduleName]) return;
         const moduleList = [moduleName].concat(meta.jModule[moduleName].requiredModules || []);
         found.push.apply(found, _CoreSelector(meta[type], meta.queries, selector, element, moduleList));
     }

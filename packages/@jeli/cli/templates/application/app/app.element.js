@@ -1,6 +1,6 @@
 Element({
     templateUrl: './app.element.html',
-    name: '[SELECTOR]'
+    selector: '[SELECTOR]'
 })
 export function AppElement() {
     this.appName = '[NAME]';

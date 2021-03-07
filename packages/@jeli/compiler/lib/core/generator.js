@@ -1,8 +1,6 @@
 const helper = require('@jeli/cli-utils');
 const htmlParser = require('./html_parser');
-const { CoreQuerySelector } = require('./query_selector');
 const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges } = require('./output');
-const { findTokenInGlobalImports, isExportedToken, getPipeProvider } = require('./compilerobject');
 const { attachViewSelectorProviders } = require('./view.provier');
 const annotationProps = ['name', 'selector', 'exportAs', 'module'];
 
@@ -14,6 +12,7 @@ const annotationProps = ['name', 'selector', 'exportAs', 'module'];
  */
 async function CoreGenerator(compilerObject, entry, changes) {
     let scriptBody = '';
+    const compilerResolver = require('./components.facade')(compilerObject);
     /**
      * 
      * @param {*} definition 
@@ -37,7 +36,12 @@ async function CoreGenerator(compilerObject, entry, changes) {
                     helper.abort(`${helper.colors.yellow(definition.fn)} is not registered to any Module`);
                 }
                 const template = obj.template;
+                const viewChild = obj.viewChild;
                 const style = obj.style;
+                /**
+                 * remove unused ctors
+                 */
+                delete obj.viewChild;
                 delete obj.template;
                 delete obj.style;
                 _resolveDependecies(obj, definition.fn, filePath);
@@ -45,7 +49,7 @@ async function CoreGenerator(compilerObject, entry, changes) {
                 quoteFix(annotationProps, obj);
                 if (helper.is(definition.type, 'Element')) {
                     if (template) {
-                        const parsedHtml = htmlParser(template, obj, compilerResolver, definition.fn);
+                        const parsedHtml = htmlParser(template, viewChild, obj.selector, compilerResolver, definition.fn);
                         if (parsedHtml.errorLogs.length) {
                             helper.console.header(`TemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
                             parsedHtml.errorLogs.forEach(helper.console.error);
@@ -207,33 +211,7 @@ async function CoreGenerator(compilerObject, entry, changes) {
 
     }
 
-    const compilerResolver = {
-        getFn: directiveConfiguration => directiveConfiguration && directiveConfiguration.map(def => def.fn),
-        getElement: (selector, component, module) => {
-            return CoreQuerySelector(compilerObject, 'Element', selector, component);
-        },
-        getDirectives: (selector, element, component, module) => {
-            return CoreQuerySelector(compilerObject, 'Directive', selector, component, element);
-        },
-        getModule: moduleName => compilerObject.jModule[moduleName],
-        getService: (serviceName, filePath) => {
-            if (compilerObject.Service.hasOwnProperty(serviceName)) {
-                return compilerObject.Service[serviceName];
-            }
 
-            const inGlobalImports = findTokenInGlobalImports(serviceName, compilerObject, 'Service');
-            if (inGlobalImports) {
-                return inGlobalImports[serviceName] || {
-                    internal: true
-                }
-            }
-
-            return isExportedToken(serviceName, compilerObject);
-        },
-        getPipe: pipeName => {
-            return getPipeProvider(pipeName, compilerObject)
-        }
-    };
     const isLib = helper.is('library', compilerObject.options.type);
     scriptBody = generateScriptBody();
     /**

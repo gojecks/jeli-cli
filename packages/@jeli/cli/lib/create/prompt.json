@@ -71,7 +71,7 @@
         "type": "list",
         "message": "Select cssProcessor:",
         "default": "css",
-        "choices": ["css", "sass"]
+        "choices": ["css", "scss"]
     }],
     "packageManager": [{
         "name": "packagemanager",

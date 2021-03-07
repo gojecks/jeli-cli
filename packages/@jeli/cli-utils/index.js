@@ -148,24 +148,32 @@ exports.splitAndTrim = (stack, needle) => stack.split(needle).map(key => key.tri
  * @param {*} prop 
  * @param {*} useName 
  * @param {*} skipQuote 
+ * @param {*} skipQuoteType 
  */
-exports.stringToObjectNameValueMapping = (prop, useName, skipQuote) => {
+exports.stringToObjectNameValueMapping = (prop, useName, skipQuoteValue, skipQuoteType) => {
     const inp = this.splitAndTrim(prop, /=/);
     const nameProp = this.splitAndTrim(inp.shift(), ":");
     const item = {
         name: (nameProp.shift()).replace(/[?#]/g, ''),
     };
 
+    const addQuote = (v, t) => `${(!t?"'" : "")}${v}${(!t?"'" : "")}`;
+
     if (this.isContain('?', prop)) {
         item.optional = true;
     }
 
     if (nameProp.length) {
-        item.type = `'${nameProp.pop()}'`;
+        item.type = addQuote(nameProp.pop(), skipQuoteType);
     }
 
     if (inp.length || useName) {
-        item.value = `${(!skipQuote?"'" : "")}${(inp[0] || item.name)}${(!skipQuote?"'" : "")}`;
+        const value = (inp[0] || item.name);
+        const symbol = value.charAt(0);
+        item.value = addQuote(this.removeSingleQuote(value.replace(/[:#]/, '')), skipQuoteValue);
+        if (symbol === ':') {
+            item.isdir = true;
+        }
     }
 
     return item;

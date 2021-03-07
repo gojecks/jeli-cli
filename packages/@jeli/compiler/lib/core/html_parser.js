@@ -18,14 +18,7 @@
  };
  const resolvedFilters = {};
 
- /**
-  * 
-  * @param {*} htmlContent 
-  * @param {*} componentDefinition 
-  * @param {*} resolvers 
-  * @param {*} component 
-  */
- module.exports = function(htmlContent, componentDefinition, resolvers, component) {
+ module.exports = function(htmlContent, viewChild, selector, resolvers, component) {
      const templatesMapHolder = {};
      const templateOutletHolder = {};
      const providers = {
@@ -123,21 +116,14 @@
      }
 
      function compileViewChild(item) {
-         if (componentDefinition && componentDefinition.viewChild) {
-             let prop = null;
-             Object.keys(componentDefinition.viewChild)
-                 .forEach(name => {
-                     const option = componentDefinition.viewChild[name];
-                     const castedValue = option.value.replace(/\'/g, '');
-                     if (helper.is(item.refId, castedValue)) {
-                         prop = name;
-                     } else if (helper.is(item.name, castedValue) || (option.isdir && item.directives && item.directives.hasOwnProperty(castedValue))) {
-                         prop = name;
-                     }
-                 });
+         if (viewChild && viewChild.length) {
+             const option = viewChild.find(view => {
+                 const castedValue = view.value.replace(/\'/g, '');
+                 return (helper.is(item.refId, castedValue)) || (helper.is(item.name, castedValue) || (view.isdir && item.directives && item.directives.hasOwnProperty(castedValue)));
+             });
 
-             if (prop) {
-                 item.vc = [prop, componentDefinition.selector];
+             if (option) {
+                 item.vc = [option, selector];
              }
          }
      }
@@ -464,7 +450,7 @@
           * @param {*} fChar 
           * @param {*} hasBinding 
           */
-         function addDirectives(name, value, fChar, hasBinding) {
+         function addDirectives(name, value, fChar, hasBinding = false) {
              var isDetachedElem = helper.is(fChar, '*');
              name = name.substr(1, name.length);
              const dirName = name;
@@ -484,7 +470,7 @@
              if (isDetachedElem) {
                  parseStructuralDirective(dirName, value, elementRefInstance, registeredDir);
              } else {
-                 setObjectType(elementRefInstance, 'props', dirName, value, hasBinding, true);
+                 setObjectType(elementRefInstance, 'props', dirName, value, hasBinding, hasBinding);
                  _attachProviders(registeredDir, elementRefInstance, true);
              }
          }
@@ -745,7 +731,7 @@
       * @param {*} element 
       */
      function _validateCustomElementAndThrowError(element) {
-         if (helper.isContain(element.name, componentDefinition.selector)) {
+         if (helper.isContain(element.name, selector)) {
              errorLogs.push(`Element <${element.name}> cannot call itself, this will result to circular referencing`);
          }
 
@@ -759,9 +745,8 @@
          const props = Object.keys(element.attr || {}).concat(Object.keys(element.props || {}));
          if (props.length) {
              props.forEach(prop => {
-                 if (!helper.isContain(prop, standardAttributes) && !definition[0].obj.props &&
-                     !isPropertyValueMap(prop, definition[0].obj.props) && !_isDirective(prop)
-                 ) {
+                 if (!helper.isContain(prop, standardAttributes) && (!definition[0].obj.props ||
+                         !isPropertyValueMap(prop, definition[0].obj.props) && !_isDirective(prop))) {
                      errorLogs.push(`Element <${helper.colors.yellow(element.name)}> does not support this property {${helper.colors.yellow(prop)}}`);
                  }
              });

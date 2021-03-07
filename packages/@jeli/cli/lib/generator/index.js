@@ -10,7 +10,7 @@ const parsePathName = pathName => {
 
 async function ComponentGenerator(componentType, pathName, options) {
     const cwd = process.cwd();
-    const supportedTypes = { e: "element", s: "service", d: "directive", m: "module" };
+    const supportedTypes = { e: "element", s: "service", d: "directive", m: "module", p: "pipe" };
     if (!supportedTypes.hasOwnProperty(componentType) && !Object.values(supportedTypes).includes(componentType)) {
         jeliUtils.console.error(`unsupported componentType "${jeliUtils.colors.yellow(componentType)}"\n`)
         jeliUtils.console.header(`Supported types:`)

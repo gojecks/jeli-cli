@@ -90,7 +90,7 @@
          loader.spinner.fail('');
          helper.console.error(`\nError while compiling ${helper.colors.yellow(filePath)} ${parentPath ? ' imported in '+helper.colors.yellow(parentPath) : '' }`);
          helper.console.warn(`\nReasons: ${err.message}`);
-         helper.console.log('\nFix errors and try again.\n');
+         helper.console.write('\nFix errors and try again.\n');
      }
  }
 
@@ -224,7 +224,7 @@
      const moduleAssignable = ['Directive', 'Element', 'Pipe'];
      if (compilerObject.files.hasOwnProperty(changes.filePath)) {
          const obj = compilerObject.output.modules[changes.filePath];
-         if (obj.annotations) {
+         if (obj && obj.annotations) {
              obj.annotations.forEach(annot => {
                  if (moduleAssignable.includes(annot.type)) {
                      moduleName = compilerObject[annot.type][annot.fn].module;

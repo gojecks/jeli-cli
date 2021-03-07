@@ -1,7 +1,7 @@
 import { RouterModule } from '@jeli/router';
 
 jModule({
-    requiredModule: [
+    requiredModules: [
         RouterModule
     ]
 })

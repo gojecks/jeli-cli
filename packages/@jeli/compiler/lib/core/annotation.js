@@ -313,17 +313,10 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
     function ParseViewChild(obj) {
         if (obj.viewChild && obj.viewChild.length) {
             obj.viewChild = obj.viewChild.reduce((accum, item) => {
-                item = helper.stringToObjectNameValueMapping(item, true);
-                const symbol = item.value.charAt(0);
-                item.value = item.value.replace(/[:#]/, '')
-                if (symbol === ':') {
-                    item.isdir = true;
-                }
-
-                accum[item.name] = item;
-                delete item.name;
+                item = helper.stringToObjectNameValueMapping(item, true, true, true);
+                accum.push(item);
                 return accum;
-            }, {});
+            }, []);
         }
     }
 
@@ -336,7 +329,6 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
             obj.resolve.forEach(item => {
                 if (helper.typeOf(item, 'string') && !isExportedToken(item, compilerObject)) return;
                 else if (helper.typeOf(item, 'object')) {
-                    console.log(object);
                 }
             });
         }
@@ -352,10 +344,6 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
                 const useName = helper.isContain("=", key);
                 const di = helper.stringToObjectNameValueMapping(key, useName);
                 if (useName) {
-                    if (helper.isContain(':', di.value)) {
-                        di.value = di.value.replace(':', '');
-                        di.isdir = true;
-                    }
                     obj.dynamicInjectors = true;
                 }
 

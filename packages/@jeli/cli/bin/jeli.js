@@ -84,7 +84,7 @@ program
 
 program
     .command('new <type> <path-name>')
-    .option('-p, --project', 'Specify project name if multiple exists in workspace. (default: defaultProject)')
+    .option('-p, --project <project-name>', 'Specify project name if multiple exists in workspace. (default: defaultProject)')
     .description('generate a new (Element|Directive|Service|Module)')
     .action((type, pathName, cmd) => {
         require('../lib/generator')(type.toLowerCase(), pathName, jeliUtils.cleanArgs(cmd))

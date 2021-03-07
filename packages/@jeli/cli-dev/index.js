@@ -132,7 +132,7 @@ exports.serve = async function(entry, options) {
         /**
          * trigger the build instance
          */
-        exports.build(null, {
+        exports.build(entry, {
             watch: true
         }, event => server.pushEvent(event));
     });
