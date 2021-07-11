@@ -4,22 +4,27 @@ const generator = require('./core/generator');
 const { CompilerObject, session } = require('./core/compilerobject');
 const helper = require('@jeli/cli-utils');
 const { getExt, spinner } = require('./core/loader');
-const { option } = require('grunt');
 
-const coreBuilder = async(config, options) => {
-    if (!config) helper.console.error(`Invalid or no configuration specified`);
-    const compilerObject = await CompilerObject(config, options);
-    await compiler(compilerObject);
-    spinner.stop();
-    await generator(compilerObject);
+/**
+ * 
+ * @param {*} jeliSchema 
+ * @param {*} entry 
+ * @param {*} buildOptions 
+ * @returns 
+ */
+exports.builder = async function(jeliSchema, entry, buildOptions) {
+    if (!jeliSchema.projects[entry]) helper.console.error(`Invalid or no configuration specified`);
+    try {
+        const compilerObject = await CompilerObject(jeliSchema.projects[entry], buildOptions, jeliSchema.resolve);
+        await compiler(compilerObject);
+        spinner.stop();
+        await generator(compilerObject);
 
-    return compilerObject;
-};
-
-exports.builder = async function(jeliSchema, buildOptions) {
-    const instance = await coreBuilder(jeliSchema, buildOptions);
-    if (buildOptions.watch) {
-        session.save(instance);
+        if (buildOptions.watch) {
+            session.save(compilerObject);
+        }
+    } catch (e) {
+        helper.abort(`\n${e.message}`);
     }
 
     return true;
@@ -44,8 +49,6 @@ exports.buildByFileChanges = async function(filePath, eventType) {
             await saveApplicationView(indexObject);
         else
             await compileFileChanges();
-    } else {
-
     }
 
     /**
@@ -63,6 +66,7 @@ exports.buildByFileChanges = async function(filePath, eventType) {
         switch (ext) {
             case ('.html'):
             case ('.js'):
+            case ('.gs'):
                 if (indexObject.output.templates.hasOwnProperty(filePath)) {
                     fileChanges.filePath = indexObject.output.templates[filePath];
                 }

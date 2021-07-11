@@ -1,8 +1,10 @@
-import {CommonModule} from '@jeli/core/common';
+import {CommonModule} from '@jeli/common';
+[IMPORTS]
 
 jModule({
     requiredModules:[
-        CommonModule
-    ]
+        CommonModule,
+        [MODULES]
+    ][SELECTORS][SERVICES][ROOTELEMENT]
 })
 export function [NAME]Module() { }

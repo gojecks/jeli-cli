@@ -4,7 +4,8 @@ const ora = require('@jeli/cli-utils/spinner');
 const fs = require('fs-extra');
 const glob = require('glob');
 const REQUIRED_ID = 'ϕrequired';
-const supportedFiles = ['.js', '.jeli'];
+const supportedFiles = ['.js', '.jli'];
+const _fileCache_ = new Map();
 
 exports.spinner = ora.start('compiling...');
 /**
@@ -40,14 +41,21 @@ exports.joinFilePath = (...args) => path.join.apply(path, args);
 /**
  * 
  * @param {*} filePath 
- * @param {*} parentPath 
+ * @param {*} ignoreCheck
  */
-exports.readFile = (filePath, parentPath) => {
-    if (!fs.existsSync(filePath)) {
+exports.readFile = (filePath, ignoreCheck = false, saveToCache = false) => {
+    if (!ignoreCheck && !fs.existsSync(filePath)) {
         throw new Error(`File "${helper.colors.yellow(filePath)}" does not exists`);
     }
 
-    return fs.readFileSync(filePath, 'utf8');
+    if (_fileCache_.has(filePath)) {
+        return _fileCache_.get(filePath);
+    }
+
+    var contents = fs.readFileSync(filePath, 'utf8');
+    if (saveToCache) _fileCache_.set(filePath, contents);
+
+    return contents;
 }
 
 /**
@@ -86,9 +94,22 @@ exports.resolveDependency = (dep, parentPath, resolveOptions) => {
 
     for (const resolvePath of resolveOptions.paths) {
         const depPath = path.join(resolvePath, dep);
+        const jsPath = `${depPath}.js`;
         if (fs.existsSync(depPath)) {
             return _resolveModule(depPath);
-        } else if (fs.existsSync(`${depPath}.js`)) return { source: `${depPath}.js` };
+        } else if (fs.existsSync(jsPath)) {
+            let pkgJson = {};
+            if (depPath.startsWith('node_modules')) {
+                const modulePath = path.join(resolvePath, dep.split('/')[0]);
+                pkgJson = exports.getPackageJson(modulePath);
+            }
+
+            return {
+                source: jsPath,
+                name: pkgJson && pkgJson.name,
+                version: pkgJson && pkgJson.version
+            };
+        }
     }
 
     function _resolveModule(depPath) {
@@ -104,12 +125,14 @@ exports.resolveDependency = (dep, parentPath, resolveOptions) => {
             return {
                 source: path.join(depPath, pkgJson.module || pkgJson.main),
                 metadata: path.join(depPath, pkgJson.metadata || 'metadata.json'),
-                isModule: !!pkgJson.module
+                isModule: !!pkgJson.module,
+                version: pkgJson.version,
+                name: pkgJson.name
             };
         }
 
         const indexPath = path.join(depPath, './index.js');
-        if (fs.existsSync(indexPath)) return { source: indexPath }
+        if (fs.existsSync(indexPath)) return { source: indexPath };
     }
 
     return null;
@@ -127,7 +150,7 @@ exports.getPackageJson = (entry, silent) => {
         return null;
     }
 
-    return JSON.parse(exports.readFile(packagePath));
+    return JSON.parse(exports.readFile(packagePath, true, true));
 }
 
 exports.getExt = file => path.extname(file);

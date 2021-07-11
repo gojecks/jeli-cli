@@ -34,8 +34,11 @@ exports.expandFilePath = (entryFile, sourceRoot) => {
 /**
  * 
  * @param {*} options 
+ * @param {*} buildOptions 
+ * @param {*} resolvers 
+ * @returns 
  */
-async function CompilerObject(options, buildOptions) {
+async function CompilerObject(options, buildOptions, resolvers) {
     options = Object.assign({
         sourceRoot: '',
         type: 'library',
@@ -55,6 +58,20 @@ async function CompilerObject(options, buildOptions) {
     options.resolve = options.resolve || {};
     options.resolve.paths = (options.resolve.paths || ['./node_modules']);
 
+    if (resolvers) {
+        if (resolvers.paths) {
+            options.resolve.paths.push.apply(options.resolve.paths, resolvers.paths);
+        }
+
+        /**
+         * extend alias
+         */
+        if (resolvers.alias) {
+            options.resolve.alias = Object.assign(resolvers.alias, options.resolve.alias);
+        }
+    }
+
+
     /**
      * alias definition is used for resolving local dependencies
      * {
@@ -68,9 +85,13 @@ async function CompilerObject(options, buildOptions) {
              * read the diectory path and write the folder names to the alias object
              */
             if (key.indexOf('/*') > -1) {
-                fs.readdirSync(options.resolve.alias[key])
-                    .forEach(name => options.resolve.alias[removeExtPath(key.replace('*', name))] = `${options.resolve.alias[key]}${name}`);
-                delete options.resolve.alias[key];
+                try {
+                    fs.readdirSync(options.resolve.alias[key])
+                        .forEach(name => options.resolve.alias[removeExtPath(key.replace('*', name))] = `${options.resolve.alias[key]}${name}`);
+                    delete options.resolve.alias[key];
+                } catch (e) {
+                    throw new Error(`Unable to resolve "${options.resolve.alias[key]}" defined in resolve.alias configuration`);
+                }
             }
         });
     }

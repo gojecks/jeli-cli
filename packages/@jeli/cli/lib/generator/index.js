@@ -1,22 +1,31 @@
 const path = require('path');
 const jeliUtils = require('@jeli/cli-utils');
-const { getJeliJson, validateProjectAndWorkSpace, getTemplatePath, updateContent } = require('../create/utils');
+const { getJeliJson, validateProjectAndWorkSpace, getTemplatePath } = require('../create/utils');
+const GeneratorInstance = require('./instance');
+const supportedTypes = { e: "element", s: "service", d: "directive", m: "module", p: "pipe", r: "router", c: "combination" };
 
 const parsePathName = pathName => {
     const spltPathName = jeliUtils.splitAndTrim(jeliUtils.is(pathName.charAt(0), '/') ? pathName.substring(1) : pathName, '/');
     spltPathName[spltPathName.length - 1] = jeliUtils.kebabCase(spltPathName[spltPathName.length - 1]);
     return spltPathName.join('/');
-}
+};
 
 async function ComponentGenerator(componentType, pathName, options) {
     const cwd = process.cwd();
-    const supportedTypes = { e: "element", s: "service", d: "directive", m: "module", p: "pipe" };
     if (!supportedTypes.hasOwnProperty(componentType) && !Object.values(supportedTypes).includes(componentType)) {
-        jeliUtils.console.error(`unsupported componentType "${jeliUtils.colors.yellow(componentType)}"\n`)
-        jeliUtils.console.header(`Supported types:`)
-        jeliUtils.console.warn(`${Object.values(supportedTypes).join(' | ')}`)
-        jeliUtils.console.warn(`${Object.keys(supportedTypes).join(' | ')}`)
-        jeliUtils.abort("")
+        throwErrorForInvalidComponentTypes(componentType);
+    }
+
+    let type = componentType.charAt(0);
+    if (type === 'c') {
+        if (!options.components) {
+            jeliUtils.console.error(`Type ${jeliUtils.colors.yellow(componentType)} requires list of components to be generated.\n`)
+            jeliUtils.abort("");
+        } else if (options.components.split('').some(ctype => !supportedTypes.hasOwnProperty(ctype))) {
+            throwErrorForInvalidComponentTypes(options.components);
+        }
+
+        type = options.components;
     }
 
     const jeliJson = getJeliJson(cwd);
@@ -33,55 +42,34 @@ async function ComponentGenerator(componentType, pathName, options) {
     }
 
     const projectConfig = jeliJson.projects[options.project || jeliJson.default];
-    const targetDir = path.resolve(cwd, projectConfig.sourceRoot, jeliUtils.is(projectConfig.type, 'application') ? 'app' : '.', parsePathName(pathName));
-    const fs = require('fs-extra');
-    const name = path.basename(targetDir);
-    const type = supportedTypes[componentType.charAt(0)];
-    const replacerData = {
-        name: jeliUtils.pascalCase(name),
-        filename: `${name}.${type}`
-    };
-    const templatePath = getTemplatePath(`generators/${type}.gs`);
-    const output = ['.js'];
+    const devFolder = jeliUtils.is(projectConfig.type, 'application') ? projectConfig.prefix : '.';
+    const targetDir = path.resolve(cwd, projectConfig.sourceRoot, devFolder, parsePathName(pathName));
     /**
      * initializer
      */
-    const generators = ({
-        element: () => {
-            fs.ensureDirSync(targetDir);
-            replacerData.styling = projectConfig.styling;
-            replacerData.selector = `${projectConfig.prefix}-${name}`;
-            const dirPath = `${targetDir}/${replacerData.filename}`;
-            updateContent(templatePath, replacerData, `${dirPath}.js`);
-            fs.writeFileSync(`${dirPath}.html`, `<p> ${replacerData.selector} works!</p>`);
-            fs.writeFileSync(`${dirPath}.${replacerData.styling}`, '');
-            output.push.apply(output, ['.html', `.${replacerData.styling}`]);
-        },
-        directive: () => {
-            fs.ensureDirSync(targetDir);
-            replacerData.selector = jeliUtils.camelCase(name);
-            updateContent(templatePath, replacerData, `${targetDir}/${replacerData.filename}.js`);
-        },
-        service: () => {
-            fs.ensureDirSync(path.dirname(targetDir));
-            updateContent(templatePath, replacerData, `${targetDir}.${type}.js`);
-        },
-        module: () => {
-            fs.ensureDirSync(targetDir);
-            updateContent(templatePath, replacerData, `${targetDir}/${replacerData.filename}.js`);
-        }
-    });
-
     try {
-        generators[type]();
-        jeliUtils.console.success(output.map(ext => `created ${replacerData.filename}${ext}`).join('\n'))
+        type = type.split('').sort((a) => {
+            if (a == 'm') {
+                return 0
+            }
+            return -1;
+        }).map(ctype => supportedTypes[ctype]);
+        await GeneratorInstance.addComponents(type, targetDir, projectConfig);
     } catch (e) {
         throw e;
     }
 }
 
+const throwErrorForInvalidComponentTypes = componentType => {
+    jeliUtils.console.error(`unsupported componentType "${jeliUtils.colors.yellow(componentType)}"\n`)
+    jeliUtils.console.header(`Supported types:`)
+    jeliUtils.console.warn(`${Object.values(supportedTypes).join(' | ')}`)
+    jeliUtils.console.warn(`${Object.keys(supportedTypes).join(' | ')}`)
+    jeliUtils.abort("")
+}
+
 module.exports = async(...args) => {
     ComponentGenerator(...args).catch(err => {
-        jeliUtils.console.error('Error while running task.');
+        jeliUtils.console.error(`Error while running task.\n${err.message}`);
     });
 }

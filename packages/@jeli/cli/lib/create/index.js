@@ -4,7 +4,8 @@ const validateProjectName = require('validate-npm-package-name');
 const jeliUtils = require('@jeli/cli-utils');
 const { projectPrompt } = require('./prompt');
 const { getPackageManagerList, install } = require('../utils/packageManager');
-const { createProject, isJeliProject, addProject, getJeliJson } = require('./utils');
+const { isJeliProject, getJeliJson } = require('./utils');
+const GeneratorInstance = require('../generator/instance');
 
 const projectNameValidation = name => {
     const validatorResult = validateProjectName(name);
@@ -18,19 +19,21 @@ const projectNameValidation = name => {
 
 /**
  * 
- * @param {*} inCurrent
+ * @param {*} jeliWorkSpace 
+ * @param {*} inCurrent 
  * @param {*} name 
  * @param {*} targetDir 
+ * @param {*} projecttExists 
  */
-const coreCreate = async(projectExists, inCurrent, name, targetDir) => {
+const coreCreate = async(jeliWorkSpace, inCurrent, name, targetDir, projectExists) => {
     await jeliUtils.console.clear();
     const availablePkgMgr = await getPackageManagerList();
-    const projectData = await projectPrompt(projectExists, name, targetDir, availablePkgMgr.Binaries);
-    if ((!projectExists || (projectExists && projectData.dirOption == 2) && inCurrent)) {
-        await createProject(projectData);
+    const projectData = await projectPrompt(jeliWorkSpace, name, targetDir, projectExists, availablePkgMgr.Binaries);
+    if ((!jeliWorkSpace || (jeliWorkSpace && projectData.dirOption == 2) && inCurrent)) {
+        await GeneratorInstance.createProject(projectData);
         await install(projectData.packagemanager, targetDir);
     } else {
-        await addProject(projectData);
+        await GeneratorInstance.addProject(projectData);
     }
 
     jeliUtils.console.success(`✔ ${projectData.variant} created successfully!!`);
@@ -42,7 +45,6 @@ async function create(projectName, options) {
     const name = inCurrent ? path.relative('../', cwd) : projectName;
     const targetDir = path.resolve(cwd, projectName || '.');
 
-
     if (options.proxy) {
         process.env.HTTP_PROXY = options.proxy
     }
@@ -51,9 +53,13 @@ async function create(projectName, options) {
     /**
      * command called within a jeli project
      */
+    let isProjectExists = false;
+    let inWorkSpace = false;
+    let isJeliProjectWorkSpace = true;
     if (isJeliProject(path.resolve(cwd))) {
         const json = getJeliJson(cwd);
-        if (json && json.projects.hasOwnProperty(name)) {
+        isProjectExists = json.projects.hasOwnProperty(name);
+        if (json && isProjectExists) {
             if (!options.force) {
                 jeliUtils.console.warn(`\nCurrent working directory is a jeli workspace`);
                 jeliUtils.abort(`fatal: project "${jeliUtils.colors.cyan(name)}" already exists.`);
@@ -61,18 +67,24 @@ async function create(projectName, options) {
                 fs.removeSync(path.join(cwd, json.projects[name].sourceRoot));
             }
         }
-
-        await coreCreate(true, false, name, targetDir);
     } else {
         /**
          * command called outside jeliProject
          */
-        await coreCreate(isJeliProject(targetDir), true, name, targetDir);
+        isJeliProjectWorkSpace = isJeliProject(targetDir);
+        inWorkSpace = true;
+        if (isJeliProject) {
+            const json = getJeliJson(targetDir);
+            isProjectExists = json && json.projects.hasOwnProperty(name);
+        }
     }
+
+    await coreCreate(isJeliProjectWorkSpace, inWorkSpace, name, targetDir, isProjectExists);
 }
 
 module.exports = (...args) => {
     return create(...args).catch(err => {
+        jeliUtils.console.error(err);
         jeliUtils.abort('Failed to complete project creation, please see logs.');
     })
 };

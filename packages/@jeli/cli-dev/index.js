@@ -1,6 +1,7 @@
 const jeliUtils = require('@jeli/cli-utils');
 const path = require('path');
 const fs = require('fs');
+const { option } = require('grunt');
 
 const changeCWD = folder => {
     if (folder) {
@@ -12,13 +13,17 @@ const changeCWD = folder => {
  * 
  * @param {*} folder 
  */
-const validateSchema = (folder) => {
+const getSchema = (folder) => {
     const jsonSchemaPath = path.join(process.cwd(), folder || '', './jeli.json');
     if (!fs.existsSync(jsonSchemaPath)) {
         jeliUtils.abort(`\nUnable to determine schema for this project, are you sure this is a jeli project?\n run "${jeliUtils.colors.yellow('jeli create PROJECT_NAME')}" to create a new project.`);
     }
 
     return jsonSchemaPath;
+}
+
+const getPackageJson = folder => {
+    return JSON.parse(fs.readFileSync(path.join(process.cwd(), folder || '', './package.json')) || '{}');
 }
 
 /**
@@ -28,8 +33,7 @@ const validateSchema = (folder) => {
  * @param {*} pushEvent 
  */
 exports.build = async function build(entry, options, pushEvent) {
-    const schemaPath = validateSchema(options.cwd);
-    const watch = require('./lib/build/watch');
+    const schemaPath = getSchema(options.cwd);
     changeCWD(options.cwd);
     const jeliSchemaJSON = JSON.parse(fs.readFileSync(schemaPath));
     entry = entry || jeliSchemaJSON.default;
@@ -38,12 +42,13 @@ exports.build = async function build(entry, options, pushEvent) {
     }
 
     const jeliCompiler = require('@jeli/compiler');
-    await jeliCompiler.builder(jeliSchemaJSON.projects[entry], options);
+    await jeliCompiler.builder(jeliSchemaJSON, entry, options);
     /**
      * start watcher
      */
     if (options.watch) {
-        const watchFolders = ['node_modules', jeliSchemaJSON.projects[entry].sourceRoot];
+        const watch = require('./lib/build/watch');
+        const watchFolders = [jeliSchemaJSON.projects[entry].sourceRoot];
         let pending = false;
         await watch(watchFolders, async(path, event) => {
             if (!pending) {
@@ -71,7 +76,7 @@ exports.build = async function build(entry, options, pushEvent) {
  * @param {*} options 
  */
 exports.serve = async function(entry, options) {
-    validateSchema(options.cwd);
+    const schemaPath = getSchema(options.cwd);
     const { genServerOptions, attachListeners, cleanup } = require('./lib/utils/server');
     const os = require('os');
     const httpServer = require('./lib/server/create');
@@ -110,7 +115,6 @@ exports.serve = async function(entry, options) {
                     }
                 });
             });
-
         } else {
             jeliUtils.console.setInitial(('  ' + protocol + canonicalHost + ':' + jeliUtils.colors.green(port.toString())));
         }
@@ -142,5 +146,9 @@ exports.serve = async function(entry, options) {
         server.close();
         cleanup(serverOptions);
     });
-
 }
+
+
+exports.test = function(entry, optionns) {
+
+};

@@ -5,6 +5,8 @@ const path = require('path');
 const minimist = require('minimist');
 const args = minimist(process.argv);
 const jeliUtils = require('@jeli/cli-utils');
+const packageJSONParams = ['version'].reduce((accum, prop) => { accum[prop] = args[prop]; return accum }, {});
+
 
 if (args.f && fs.existsSync(path.resolve(args.f))) {
     process.chdir(args.f);
@@ -20,10 +22,10 @@ async function build() {
     const jeliCompiler = require('../lib/index');
     if (args.all) {
         for (const name in config.projects) {
-            await jeliCompiler.builder(config.projects[name], {});
+            await jeliCompiler.builder(config, name, packageJSONParams);
         }
     } else {
-        await jeliCompiler.builder(config.projects[args.entry || config.default], {});
+        await jeliCompiler.builder(config, args.entry || config.default, packageJSONParams);
     }
 };
 

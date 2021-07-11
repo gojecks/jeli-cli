@@ -1,7 +1,7 @@
 const helper = require('@jeli/cli-utils');
 const htmlParser = require('./html_parser');
 const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges } = require('./output');
-const { attachViewSelectorProviders } = require('./view.provier');
+const { attachViewSelectorProviders } = require('./view.provider');
 const annotationProps = ['name', 'selector', 'exportAs', 'module'];
 
 /**
@@ -54,7 +54,7 @@ async function CoreGenerator(compilerObject, entry, changes) {
                             helper.console.header(`TemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
                             parsedHtml.errorLogs.forEach(helper.console.error);
                         }
-                        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ new ViewParser(${attachViewProviders(filePath, parsedHtml)}, ${JSON.stringify(parsedHtml.templatesMapHolder)}) /** template loader **/;`);
+                        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ (function(_viewParser){ return function(parentRef){  return _viewParser.compile(${attachViewProviders(filePath, parsedHtml)}, parentRef);}})(new core["ViewParser"])/** template loader **/`);
                     }
 
                     // style parser
@@ -120,8 +120,8 @@ async function CoreGenerator(compilerObject, entry, changes) {
         let output = JSON.stringify(parsedHtml.parsedContent);
         attachViewSelectorProviders(parsedHtml.providers, compilerObject, imports).forEach(replaceProviders);
 
-        function replaceProviders(providerName) {
-            output = output.replace(new RegExp(`"%${providerName}%"`, 'g'), providerName);
+        function replaceProviders(viewProvider) {
+            output = output.replace(new RegExp(`"%${viewProvider.providerName}%"`, 'g'), `${viewProvider.outputName}["${viewProvider.providerName}"]`);
         }
 
         return output;

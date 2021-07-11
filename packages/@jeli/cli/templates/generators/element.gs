@@ -5,5 +5,5 @@ Element({
     styleUrl: './[FILENAME].[STYLING]'
 })
 export function [NAME]Element() {
-
+    [SCRIPTCONTENT]
 }

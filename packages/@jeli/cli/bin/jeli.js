@@ -40,7 +40,7 @@ program
     .command('build [entry]')
     .description('name of project to build as specified in jeli.json configuration')
     .option('-f, --cwd <workspace>', 'Change current working directory')
-    .option('-n, --name <name>', 'library name to build, defaults to all in config')
+    .option('-v, --version <version>', 'version number to be built')
     .option('--prod', 'build application for production')
     .action((entry, cmd) => {
         cliCommander('build', '@jeli/cli-dev').build(entry, jeliUtils.cleanArgs(cmd))
@@ -85,6 +85,7 @@ program
 program
     .command('new <type> <path-name>')
     .option('-p, --project <project-name>', 'Specify project name if multiple exists in workspace. (default: defaultProject)')
+    .option('-c, --components <components>', 'Specify list of components to create. e.g [mers] = module,element,router,service')
     .description('generate a new (Element|Directive|Service|Module)')
     .action((type, pathName, cmd) => {
         require('../lib/generator')(type.toLowerCase(), pathName, jeliUtils.cleanArgs(cmd))
@@ -101,10 +102,10 @@ program
 
 // add some useful info on help
 program.on('--help', () => {
-            jeliUtils.console.write(`\n  Run ${jeliUtils.colors.cyan(`jeli <command> --help`)} for detailed usage of given command.\n`)
+            jeliUtils.console.write(`\n  Run ${jeliUtils.colors.cyan(`jeli <command> --help`)} for detailed usage of given command.\n`);
 })
 
-program.commands.forEach(c => c.on('--help', () => jeliUtils.console.write()))
+program.commands.forEach(c => c.on('--help', () => jeliUtils.console.write()));
 program.parse(process.argv)
 if (!process.argv.slice(2).length) {
   program.outputHelp();

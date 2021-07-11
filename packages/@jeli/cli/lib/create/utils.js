@@ -4,10 +4,10 @@ const jeliUtils = require('@jeli/cli-utils');
 const shell = require('shelljs');
 const execa = require('execa');
 
-const getTemplatePath = name => path.resolve(__dirname, '../../templates', name || '');
-const getJeliSchemaFilePath = targetDir => path.join(targetDir, 'jeli.json');
-const getJeliJson = targetDir => {
-    const filePath = getJeliSchemaFilePath(targetDir);
+exports.getTemplatePath = name => path.resolve(__dirname, '../../templates', name || '');
+exports.getJeliSchemaFilePath = targetDir => path.join(targetDir, 'jeli.json');
+exports.getJeliJson = targetDir => {
+    const filePath = this.getJeliSchemaFilePath(targetDir);
     if (fs.existsSync(filePath)) {
         return JSON.parse(fs.readFileSync(filePath, 'utf8'));
     }
@@ -15,8 +15,8 @@ const getJeliJson = targetDir => {
     return null;
 };
 
-const updateJeliSchema = async(projectData, dir) => {
-    const json = getJeliJson(dir);
+exports.updateJeliSchema = async(projectData, dir) => {
+    const json = this.getJeliJson(dir);
     if (json) {
         /**
          * default config
@@ -25,23 +25,23 @@ const updateJeliSchema = async(projectData, dir) => {
             json.projects[projectData.name] = {
                 sourceRoot: projectData.sourceroot,
                 prefix: projectData.prefix,
-                output: {}
+                output: {},
+                resolve: {}
             };
         }
         /**
          * set the variant here should incase project name already exists and variant was changed
          */
         json.projects[projectData.name].type = projectData.variant;
-
         if (jeliUtils.is('application', projectData.variant)) {
             json.projects[projectData.name].styling = projectData.style;
             json.projects[projectData.name].output = {
                 folder: "dist/",
                 view: "index.html",
-                styles: [`${projectData.sourceroot}styles.scss`],
+                styles: [`${projectData.sourceroot}/styles.scss`],
                 entryFile: "main.js",
                 copy: [{
-                    src: "src/assets/",
+                    src: `${projectData.sourceroot}/assets/`,
                     dest: "dist/assets/"
                 }]
             }
@@ -66,11 +66,11 @@ const updateJeliSchema = async(projectData, dir) => {
             };
         }
         // save the update json
-        fs.writeFileSync(getJeliSchemaFilePath(dir), JSON.stringify(json, null, 3));
+        fs.writeFileSync(this.getJeliSchemaFilePath(dir), JSON.stringify(json, null, 3));
     }
 };
 
-const updatePackageJSON = async(projectData) => {
+exports.updatePackageJSON = async(projectData) => {
     const filePath = path.join(projectData.targetDir, 'package.json');
     const json = JSON.parse(fs.readFileSync(filePath), 'utf8');
     if (projectData.doc) {
@@ -86,74 +86,69 @@ const updatePackageJSON = async(projectData) => {
     fs.writeFileSync(filePath, JSON.stringify(json, null, 2));
 };
 
+exports.getDir = async(...args) => {
+    let targetDir = "";
+    args.forEach(projectRoot => {
+        targetDir = path.join(targetDir, projectRoot);
+        if (!fs.existsSync(targetDir)) {
+            jeliUtils.console.write(`creating folder : ${projectRoot}`);
+            fs.mkdirSync(targetDir);
+        }
+    });
+
+    return targetDir;
+}
+
 /**
  * 
  * @param {*} name 
  * @param {*} targetDir 
- * @param {*} variant 
+ * @param {*} variants
  */
-const copyTemplate = async(name, targetDir, variant) => {
-    const dir = path.join(targetDir, name);
-    if (!fs.existsSync(dir)) {
-        jeliUtils.console.write(`creating folder : ${path.relative(targetDir, dir) || path.basename(targetDir)}`);
-        fs.mkdirSync(dir);
-    }
-
-    jeliUtils.console.write(`copying ${variant} templates`);
-    const templatePath = getTemplatePath(variant);
-    if (fs.existsSync(templatePath)) {
-        shell.cp('-R', `${templatePath}/*`, dir);
-        /**
-         * shell doesn't copy .fileName files
-         * we have to copy the .fileNames manually
-         */
-        if (jeliUtils.is(variant, 'default')) {
-            ['.esdoc.json', '.eslintrc.json', '.gitignore'].forEach(fileName => {
-                jeliUtils.console.write(`creating ${fileName}`);
-                shell.cp(`${templatePath}/${fileName}`, dir);
-            });
+exports.copyTemplate = async(name, targetDir, variants) => {
+    const dir = await this.getDir(targetDir, name);
+    variants.forEach(variant => {
+        jeliUtils.console.write(`copying ${variant} templates`);
+        const templatePath = this.getTemplatePath(variant);
+        if (fs.existsSync(templatePath)) {
+            shell.cp('-R', `${templatePath}/*`, dir);
+            /**
+             * shell doesn't copy .fileName files
+             * we have to copy the .fileNames manually
+             */
+            if (jeliUtils.is(variant, 'default')) {
+                ['.esdoc.json', '.eslintrc.json', '.gitignore'].forEach(fileName => {
+                    jeliUtils.console.write(`creating ${fileName}`);
+                    shell.cp(`${templatePath}/${fileName}`, dir);
+                });
+            }
         }
-    }
+    });
 };
 
-const replaceVariablesInTemplate = async projectData => {
+exports.replaceVariablesInTemplate = async projectData => {
     // Replace variable values in all files
     shell.ls('-Rl', projectData.targetDir).forEach(file => {
         if (file.isFile()) {
-            updateContent(path.join(projectData.targetDir, file.name), projectData);
-
+            this.updateContent(path.join(projectData.targetDir, file.name), projectData);
         }
     });
 };
 
-const updateContent = (filePath, options, outputFilePath) => {
-    // Replace '[VARIABLE]` with the corresponding variable value from the prompt
-    const content = fs.readFileSync(filePath, 'utf8').replace(/\[(.*)\]/g, (_, key) => {
+exports.templateParser = (content, options) => {
+    return content.replace(/\[(.*?)\]/g, (_, key) => {
         return options.hasOwnProperty(key.toLowerCase()) ? options[key.toLowerCase()] : _;
     });
+}
 
+exports.updateContent = (filePath, options, outputFilePath) => {
+    // Replace '[VARIABLE]` with the corresponding variable value from the prompt
+    const content = this.templateParser(fs.readFileSync(filePath, 'utf8'), options);
     fs.writeFileSync(outputFilePath || filePath, content);
 };
 
-const removeFiles = async projectData => {
-    // Remove MIT License file if another is specified
-    if (projectData.license && !jeliUtils.is(projectData.license, 'MIT')) {
-        jeliUtils.console.write(`removing default LICENSE file`);
-        shell.rm(`${projectData.targetDir}/LICENSE`);
-    }
 
-    // Remove router file
-    if (!projectData.router && jeliUtils.is(projectData.variant, 'application')) {
-        jeliUtils.console.write(`removing router configuration`);
-        shell.rm(`${projectData.targetDir}/${projectData.sourceroot}/app/app.router.js`);
-    }
-
-    if (projectData.style) {
-        shell.rm(`${projectData.targetDir}/${projectData.sourceroot}/app/app.element.${projectData.style == 'css' ? 'scss':'css'}`);
-    }
-};
-
-const gitInit = async projectData => {
+exports.gitInit = async projectData => {
     if (!projectData.initGit) return;
     await run('git', ['init'], projectData.targetDir);
     await run('git', ['add', '-A'], projectData.targetDir);
@@ -169,46 +164,11 @@ const run = async(cmd, args, cwd) => {
     return execa(cmd, args, { cwd })
 };
 
-exports.addProject = async projectData => {
-    try {
-        let folderName = projectData.sourceroot;
-        if (!projectData.dirExist) {
-            projectData.sourceroot = projectData.name;
-            /**
-             * create the application in the targetDir
-             */
-            folderName = '';
-        }
-        await copyTemplate(folderName, projectData.targetDir, projectData.variant);
-        await updateJeliSchema(projectData, path.resolve(projectData.targetDir, '..'));
-        await replaceVariablesInTemplate(projectData);
-    } catch (e) {
-        jeliUtils.console.error(`unable to add ${jeliUtils.colors.cyan(projectData.variant)} project.`);
-    }
-}
-
 
 /**
  * check if targetDir is a jeli project
  */
-exports.isJeliProject = targetDir => fs.existsSync(targetDir) && fs.existsSync(getJeliSchemaFilePath(targetDir));
-
-exports.createProject = async projectData => {
-    try {
-        jeliUtils.console.write(`✨Creating project in ${jeliUtils.colors.yellow(projectData.targetDir)}.`);
-        await copyTemplate('', projectData.targetDir, 'default');
-        await copyTemplate(projectData.sourceroot, projectData.targetDir, projectData.variant);
-        await removeFiles(projectData);
-        await replaceVariablesInTemplate(projectData);
-        await updateJeliSchema(projectData, projectData.targetDir);
-        await updatePackageJSON(projectData);
-        await gitInit(projectData)
-    } catch (e) {
-        console.log(e)
-        jeliUtils.console.error(`unable to generate ${jeliUtils.colors.cyan(projectData.variant)}`);
-        throw false;
-    }
-};
+exports.isJeliProject = targetDir => fs.existsSync(targetDir) && fs.existsSync(this.getJeliSchemaFilePath(targetDir));
 
 exports.validateProjectAndWorkSpace = (jeliJson, projectName) => {
     if (!jeliJson) {
@@ -217,9 +177,3 @@ exports.validateProjectAndWorkSpace = (jeliJson, projectName) => {
         jeliUtils.abort(`project ${jeliUtils.colors.cyan(projectName)} does not exists in this workspace.`);
     }
 }
-
-
-exports.getJeliJson = getJeliJson;
-exports.getJeliSchemaFilePath = getJeliSchemaFilePath;
-exports.getTemplatePath = getTemplatePath;
-exports.updateContent = updateContent;

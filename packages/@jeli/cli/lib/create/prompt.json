@@ -61,7 +61,7 @@
         "name": "router",
         "type": "list",
         "message": "use jeli router",
-        "default": false,
+        "default": true,
         "choices": [
             { "name": "yes", "value": true },
             { "name": "no", "value": false }
@@ -70,7 +70,7 @@
         "name": "style",
         "type": "list",
         "message": "Select cssProcessor:",
-        "default": "css",
+        "default": "scss",
         "choices": ["css", "scss"]
     }],
     "packageManager": [{
@@ -80,7 +80,7 @@
         "default": "npm",
         "choices": []
     }],
-    "directoyExist": [{
+    "directoryExist": [{
         "name": "dirOption",
         "type": "list",
         "message": "Directory already exists. Pick an action:",

@@ -48,10 +48,10 @@ exports.answers = async(questions, projectData) => {
 /**
  * Project prompt method
  */
-exports.projectPrompt = async(projectExists, name, targetDir, availablePkgMgr) => {
+exports.projectPrompt = async(jeliWorkSpace, name, targetDir, projectExists, availablePkgMgr) => {
     const dirExist = fs.existsSync(targetDir);
     const projectData = await this.answers([{
-            promptId: "directoyExist",
+            promptId: "directoryExist",
             cond: [{
                 dirExist: true
             }],
@@ -63,7 +63,7 @@ exports.projectPrompt = async(projectExists, name, targetDir, availablePkgMgr) =
         {
             promptId: 'main',
             cond: [{
-                projectExists: false
+                jeliWorkSpace: false
             }, {
                 dirOption: 2,
                 projectExists: true
@@ -72,7 +72,7 @@ exports.projectPrompt = async(projectExists, name, targetDir, availablePkgMgr) =
         {
             promptId: "sourceRoot",
             cond: [{
-                projectExists: false
+                jeliWorkSpace: false
             }, {
                 dirOption: 2,
                 projectExists: true
@@ -92,7 +92,7 @@ exports.projectPrompt = async(projectExists, name, targetDir, availablePkgMgr) =
         },
         {
             cond: [{
-                projectExists: false
+                jeliWorkSpace: false
             }, {
                 dirOption: 2,
                 projectExists: true
@@ -102,13 +102,13 @@ exports.projectPrompt = async(projectExists, name, targetDir, availablePkgMgr) =
                 choices: Object.keys(availablePkgMgr)
             }]
         }
-    ], { dirExist, projectExists });
+    ], { dirExist, projectExists, jeliWorkSpace });
 
     projectData.year = new Date().getFullYear();
     projectData.name = name;
     projectData.targetDir = targetDir;
     projectData.selector = `${projectData.prefix}-${projectData.name}`;
-    projectData.jeliviewentry = `<${projectData.selector}></${projectData.selector}>`;
+    projectData.jeliviewentry = `<${projectData.name}></${projectData.name}>`;
     projectData.sourceroot = projectData.sourceroot || name;
 
     return projectData;

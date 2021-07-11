@@ -79,6 +79,7 @@ exports.simpleArgumentParser = (expression) => {
     return expression;
 }
 
+exports.cloneObject = obj => JSON.parse(JSON.stringify(obj));
 
 exports._eval = (str) => {
     return new Function("try { return " + str + "} catch(e){ return " + str + "};").call(null, {});

@@ -7,6 +7,7 @@
  const annotationParser = require('./annotation');
  const { resolveMetaData, getMetaData } = require('./compilerobject');
  const loader = require('./loader');
+ const inProgress = [];
 
  /**
   * 
@@ -32,6 +33,17 @@
          return await validateImports(importedItem, currentInstance.files[filePath].exports, filePath, parentPath);
      };
 
+     /**
+      * prevent re-compiling file thats in progress
+      * this can occur with below dependency
+      * A -> B -> C -> A
+      *           
+      */
+     if (inProgress.includes(filePath)) {
+         return;
+     }
+
+     inProgress.push(filePath);
      helper.writeline(filePath);
      /**
       * add the resolved filePath to currentInstance for reference
@@ -42,7 +54,8 @@
          declarations: {
              fns: [],
              vars: []
-         }
+         },
+         parentPath: isEntry ? parentPath : null
      };
      const output = {
          type: 'source',
@@ -83,6 +96,7 @@
          }
 
          currentInstance.files[filePath] = fileImpExt;
+         inProgress.splice(inProgress.indexOf(filePath), 1);
          if (!isEntry) {
              _pushToDependency(currentInstance, filePath, output);
          }
@@ -134,7 +148,9 @@
              currentInstance.globalImports[importItem.source] = {
                  output: helper.trimPackageName(importItem.source),
                  specifiers: [],
-                 fullPath: resolvedDep.source
+                 absolutePath: resolvedDep.source,
+                 version: resolvedDep.version,
+                 name: resolvedDep.name
              };
          }
 

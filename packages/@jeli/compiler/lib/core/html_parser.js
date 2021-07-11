@@ -21,10 +21,12 @@
  module.exports = function(htmlContent, viewChild, selector, resolvers, component) {
      const templatesMapHolder = {};
      const templateOutletHolder = {};
+     const resolvedTemplates = [];
      const providers = {
          ViewParser: "@jeli/core"
      };
      const errorLogs = [];
+     const pushToResolvedTemplates = templateId => { if (!resolvedTemplates.includes(templateId)) resolvedTemplates.push(templateId); };
 
      /**
       * 
@@ -69,13 +71,7 @@
              /**
               * remove unmapped props
               */
-             if (newItem.props) {
-                 Object.keys(newItem.props).forEach(prop => {
-                     if (helper.is(newItem.props[prop], '@!')) {
-                         delete newItem.props[prop];
-                     }
-                 });
-             }
+             removeUnmappedProps(newItem);
          }
 
          /**
@@ -98,21 +94,43 @@
              return buildStructuralDirectiveTemplates(newItem, parent);
          }
 
-         switch (item.name) {
+         return checkAndBuildTemplateElement(newItem, item.name, parent);
+     }
+
+
+     /**
+      * 
+      * @param {*} newElement 
+      * @param {*} elementName 
+      * @param {*} parent 
+      * @returns 
+      */
+     function checkAndBuildTemplateElement(newElement, elementName, parent) {
+         switch (elementName) {
              case ('j-template'):
-                 return templateCompiler(newItem, parent);
+                 return templateCompiler(newElement, parent);
              case ('j-place'):
-                 newItem.type = 'place';
-                 if (newItem.attr && newItem.attr.selector) {
-                     var firstChar = newItem.attr.selector.charAt(0);
-                     var selector = selectorTypes[firstChar] || null;
-                     newItem.selector = [selector, newItem.attr.selector.replace(/[\[\].#]/g, '')];
-                     delete newItem.attr;
-                 }
+                 return jPlaceCompiler(newElement, parent);
+             case ('j-fragment'):
+                 templateLinker(newElement, (newElement.attr && newElement.attr['template']));
                  break;
          }
 
-         return newItem;
+         return newElement;
+     }
+
+     /**
+      * 
+      * @param {*} newItem 
+      */
+     function removeUnmappedProps(newItem) {
+         if (newItem.props) {
+             Object.keys(newItem.props).forEach(prop => {
+                 if (helper.is(newItem.props[prop], '@!')) {
+                     delete newItem.props[prop];
+                 }
+             });
+         }
      }
 
      function compileViewChild(item) {
@@ -168,12 +186,10 @@
       * @param {*} compiledItem 
       * @param {*} parent 
       */
-     function buildStructuralDirectiveTemplates(compiledItem, parent) {
+     function buildStructuralDirectiveTemplates(compiledItem) {
          const definition = compiledItem.structuralDirective;
          delete compiledItem.structuralDirective;
          switch (definition.dirName) {
-             case ('outlet'):
-                 return outletCompiler(definition.props.outlet.prop, compiledItem.context);
              case ('if'):
                  return jIfCompiler(definition, compiledItem);
              default:
@@ -193,7 +209,7 @@
                      item.templates[templateId] = ({
                          refId: item.props[templateId]
                      });
-                     templateCompiler(item.templates[templateId], null);
+                     templateLinker(item.templates[templateId], item.props[templateId]);
                  }
              }
          }
@@ -205,7 +221,7 @@
       * create AbstractTemplate Object
       * @param {*} definition 
       */
-     function createDefaultTemplate(definition, compiledItem) {
+     function createDefaultTemplate(definition, element) {
          var item = {
              type: "comment",
              name: "#comment",
@@ -217,7 +233,11 @@
              item.props = definition.props;
          }
 
-         item.templates[definition.dirName] = compiledItem;
+         /**
+          * bind to templateFragments
+          */
+         templateLinker(element, (element.attr && element.attr['template']));
+         item.templates[definition.dirName] = element;
          _attachProviders(definition.registeredDir, item);
          return item;
      }
@@ -227,24 +247,28 @@
       * @param {*} item 
       * @param {*} parent 
       */
-     function templateCompiler(item, parent) {
+     function templateCompiler(element, parent) {
          if (parent && parent.name && parent.isc) {
              /**
               * attach template
               */
-             parent.templates = parent.templates || {};
-             parent.templates[item.refId] = item;
-         } else if (templateOutletHolder[item.refId]) {
-             templateOutletHolder[item.refId].template = item;
-             if (templateOutletHolder[item.refId].context) {
-                 generateOutletContext(templateOutletHolder[item.refId]);
-             }
-             delete templateOutletHolder[item.refId];
-         } else if (templatesMapHolder[item.refId]) {
-             Object.assign((parent ? templatesMapHolder[item.refId] : item), (parent ? item : templatesMapHolder[item.refId]));
-             delete templatesMapHolder[item.refId];
+             if (!parent.templates) parent.templates = {};
+             parent.templates[element.refId] = element;
+         } else if (templateOutletHolder[element.refId]) {
+             templateOutletHolder[element.refId].forEach(outletElement => {
+                 const index = outletElement.index;
+                 Object.assign(outletElement, helper.cloneObject(element));
+                 outletElement.index = index;
+                 if (outletElement.context) {
+                     generateOutletContext(outletElement);
+                 }
+             });
+
+             delete templateOutletHolder[element.refId];
+             templatesMapHolder[element.refId] = element;
+             pushToResolvedTemplates(element.refId);
          } else {
-             templatesMapHolder[item.refId] = item;
+             templatesMapHolder[element.refId] = element;
          }
 
          return null;
@@ -252,28 +276,62 @@
 
 
      /**
-      * contextMapping for outlet
-      * @param {*} templateId 
-      * @param {*} context 
+      * 
+      * @param {*} element 
+      * @returns 
       */
-     function outletCompiler(templateId, context) {
-         var outlet = {
-             type: 'outlet'
-         };
+     function templateLinker(element, templateId) {
          if (templateId) {
+             if (element.children) {
+                 errorLogs.push(`template="${templateId}" linking not allowed in <${element.name}> with content.`);
+                 return;
+             }
+
+             delete element.attr;
              if (templatesMapHolder[templateId]) {
-                 outlet = templatesMapHolder[templateId];
-                 generateOutletContext(outlet);
-                 delete templatesMapHolder[templateId];
+                 Object.assign(element, helper.cloneObject(templatesMapHolder[templateId]));
+                 pushToResolvedTemplates(templateId);
              } else {
-                 templateOutletHolder[templateId] = outlet;
-                 if (context) {
-                     outlet.context = context;
-                 }
+                 if (!templateOutletHolder[templateId])
+                     templateOutletHolder[templateId] = [];
+                 templateOutletHolder[templateId].push(element);
              }
          }
+     }
 
-         return outlet;
+     /**
+      * 
+      * @param {*} element 
+      * @param {*} parent 
+      * @returns 
+      */
+     function jPlaceCompiler(element, parent) {
+         if (parent.isc) {
+             errorLogs.push(`<${parent.name}><j-place></j-place></${parent.name}> usage not allowed, please look at documentation for more info`);
+             return null;
+         }
+
+         // check for child content
+         if (element.children) {
+             errorLogs.push(`<j-place/> element does not support child elements`);
+             return null;
+         }
+
+         element.type = 'place';
+         if (element.attr) {
+             if (element.attr.selector) {
+                 var firstChar = element.attr.selector.charAt(0);
+                 var selector = selectorTypes[firstChar] || null;
+                 element.selector = [selector, element.attr.selector.replace(/[\[\].#]/g, '')];
+             } else if (element.attr.template) {
+                 element.refId = element.attr.template;
+             }
+
+             // remove the element
+             delete element.attr;
+         }
+
+         return element;
      }
 
      /**
@@ -359,7 +417,7 @@
 
          let ast;
          try {
-             if (helper.is('{', expression.charAt(0)))
+             if (expression.startsWith('{'))
                  ast = parseAstJSON(expression);
              else if (/^\[(.*)\]$/.test(expression)) {
                  let parsed;
@@ -412,7 +470,7 @@
              var propName = helper.camelCase(node.replace('data-', ''));
              setObjectType(elementRefInstance, 'data', propName, value || propName);
          } else if (interpolation.hasTemplateBinding(value)) {
-             setObjectType(elementRefInstance, 'attrObservers', node, createTextNode(value, true));
+             setObjectType(elementRefInstance, 'attr$', node, createTextNode(value, true));
          } else {
              setObjectType(elementRefInstance, 'attr', node, helper.simpleArgumentParser(value));
          }
@@ -439,7 +497,7 @@
              if (helper.typeOf(filter.prop, 'string')) {
                  filter.prop = expressionAst(filter.prop);
              }
-             setObjectType(elementRefInstance, 'attrObservers', propName, filter);
+             setObjectType(elementRefInstance, 'attr$', propName, filter);
          }
 
 
@@ -673,9 +731,9 @@
           * check if an observer was already registered
           * and the observer is not registered to attribute prop
           */
-         if (elementRefInstance.attrObservers && elementRefInstance.attrObservers.hasOwnProperty(name) && !helper.is(prop, 'attr')) {
-             value = elementRefInstance.attrObservers[name];
-             delete elementRefInstance.attrObservers[name];
+         if (elementRefInstance.attr$ && elementRefInstance.attr$.hasOwnProperty(name) && !helper.is(prop, 'attr')) {
+             value = elementRefInstance.attr$[name];
+             delete elementRefInstance.attr$[name];
          }
 
          if (!elementRefInstance[prop]) {
@@ -731,7 +789,7 @@
       * @param {*} element 
       */
      function _validateCustomElementAndThrowError(element) {
-         if (helper.isContain(element.name, selector)) {
+         if (helper.isContain(element.name, selector || '')) {
              errorLogs.push(`Element <${element.name}> cannot call itself, this will result to circular referencing`);
          }
 
@@ -805,7 +863,16 @@
          normalizeWhitespace: true,
          lowerCaseAttributeNames: false,
          decodeEntities: true
-     }).map(contentParser).filter(content => content);
+     }).map(contentParser).filter(element => element);
+
+     // remove all resolved templates from templatesMapHolder
+     resolvedTemplates.forEach(templateId => delete templatesMapHolder[templateId]);
+     const unResolvedOutlets = Object.keys(templateOutletHolder);
+     if (unResolvedOutlets.length) {
+         errorLogs.push(`please remove all unlinked fragments and try again\n ${helper.colors.yellow(unResolvedOutlets.map(id => '[template="'+ id +'"]').join('\n'))} `);
+     }
+
+
 
      return {
          errorLogs,

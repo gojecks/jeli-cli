@@ -7,7 +7,7 @@
         "packages/@jeli/*"
     ],
     "scripts": {
-        "test": "echo \"error: no test specified\" && exit 1",
+        "test": "node scripts/test.runner.js",
         "release": "yarn --pure-lockfile &&  node scripts/release.js"
     },
     "keywords": [
@@ -44,7 +44,7 @@
         "portfinder": "^1.0.20",
         "secure-compare": "3.0.1",
         "union": "~0.5.0",
-        "mocha": "^6.2.1",
+        "mocha": "^8.4.0",
         "espree": "^6.1.2",
         "esprima": "^4.0.1",
         "html-dom-parser": "^0.2.2",
