@@ -26,7 +26,8 @@ const ASTExpression = {
     UNARY: "UnaryExpression",
     NEW: "NewExpression",
     THIS: "ThisExpression",
-    LOGICAL: "LogicalExpression"
+    LOGICAL: "LogicalExpression",
+    LITERAL: "LITERAL"
 };
 
 const ASTIdentifier = 'Identifier';
@@ -129,10 +130,12 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                     // found Annotations
                     const impl = getFunctionImpl(ast.body, i, currentProcess.exports);
                     const properties = expression.expression.arguments[0];
+                    const type = expression.expression.callee.name;
+                    const isService = ['jmodule'].includes(type.toLowerCase());
                     sourceOutlet.annotations.push({
                         impl,
-                        type: expression.expression.callee.name,
-                        definitions: properties ? generateProperties(properties.properties, true) : {}
+                        type,
+                        definitions: properties ? generateProperties(properties.properties, true, false, isService) : {}
                     });
                     i = i + impl.length;
                 } else {
@@ -143,8 +146,8 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                 sourceOutlet.scripts.push(expression);
                 if (helper.is(ASTDeclarations.VARIABLE, expression.type)) {
                     expression.declarations.map(decl => pushDeclarations(decl.id.name, 'vars'));
-                } else if (helper.is(ASTDeclarations.VARIABLE, expression.type)) {
-                    pushDeclarations(decl.id.name, 'fns')
+                } else if (helper.is(ASTDeclarations.FUNCTION, expression.type)) {
+                    pushDeclarations(expression.id.name, 'fns')
                 }
                 break;
         }
@@ -238,21 +241,25 @@ function getClassDeclarationFromAst(declaration) {
  * 
  * @param {*} expression 
  * @param {*} addQuote 
+ * @param {*} scriptMode 
+ * @param {*} asIs 
+ * @returns 
  */
-function getValueFromAst(expression, addQuote, scriptMode) {
+function getValueFromAst(expression, addQuote, scriptMode, asIs) {
     switch (expression.type) {
         case (ASTExpression.ARRAY):
-            return expression.elements.map(item => getValueFromAst(item, addQuote, scriptMode));
+            return expression.elements.map(item => getValueFromAst(item, addQuote, scriptMode, asIs));
         case (ASTExpression.OBJECT):
-            const expr = generateProperties(expression.properties, scriptMode, addQuote);
-            return scriptMode ? expr : ({
+            const expr = generateProperties(expression.properties, scriptMode, addQuote, asIs);
+            return (scriptMode || asIs) ? expr : ({
                 type: 'obj',
                 expr
             });
         case (ASTIdentifier):
             return scriptMode && addQuote ? `'${expression.name}'` : expression.name;
         case (ASTExpression.MEMBER):
-            return getNameSpaceFromAst(expression, [], addQuote);
+            const value = getNameSpaceFromAst(expression, [], addQuote);
+            return asIs ? value.join('.') : value;
         case (ASTExpression.CONDITIONAL):
             return {
                 type: "ite",
@@ -283,7 +290,7 @@ function getValueFromAst(expression, addQuote, scriptMode) {
             const namespaces = getNameSpaceFromAst(expression.callee, [], addQuote);
             const item = {
                 type: addQuote ? "'call'" : "call",
-                args: getArguments(expression.arguments, false),
+                args: getArguments(expression.arguments, false, asIs),
                 fn: namespaces.pop()
             };
 
@@ -302,7 +309,7 @@ function getValueFromAst(expression, addQuote, scriptMode) {
             return {
                 type: "new",
                 fn: expression.callee.name,
-                args: getArguments(expression.arguments, addQuote)
+                args: getArguments(expression.arguments, addQuote, asIs)
             };
         case (ASTDeclarations.IMPORT):
             const specifiers = (expression.specifiers || []);
@@ -318,13 +325,13 @@ function getValueFromAst(expression, addQuote, scriptMode) {
                 source: expression.source.value
             });
         default:
-            if (!scriptMode && expression.raw != expression.value)
+            if (!scriptMode && expression.raw != expression.value && !asIs)
                 return {
                     type: 'raw',
                     value: expression.value
                 };
             else
-                return expression.value;
+                return expression[(asIs && expression.raw && helper.typeOf(expression.value, 'string')) ? 'raw' : 'value'];
     }
 }
 
@@ -332,11 +339,13 @@ function getValueFromAst(expression, addQuote, scriptMode) {
  * 
  * @param {*} args 
  * @param {*} addQuote 
+ * @param {*} raw 
+ * @returns 
  */
-function getArguments(args, addQuote) {
+function getArguments(args, addQuote, raw) {
     return args.map(item => {
-        const arg = getValueFromAst(item, addQuote);
-        return helper.is(ASTExpression.ARRAY, item.type) ? { arg } : arg;
+        const arg = getValueFromAst(item, addQuote, false, raw);
+        return (helper.is(ASTExpression.ARRAY, item.type) && !raw) ? { arg } : arg;
     });
 }
 
@@ -359,14 +368,14 @@ function getNameSpaceFromAst(ast, list, addQuote) {
             list.push(helper.is(ast.object.type, ASTExpression.THIS) ? '$this' : ast.object.name);
         }
     } else {
-        list.push(ast.name);
+        list.push(ast.name || ast.value);
     }
 
     if (ast.property) {
         if (ast.computed) {
             list.push(getNameSpaceFromAst(ast.property, [], addQuote))
         } else {
-            list.push(ast.property.name);
+            list.push(ast.property.name || ast.property.value);
         }
     }
 
@@ -382,10 +391,12 @@ function getNameSpaceFromAst(ast, list, addQuote) {
  * @param {*} properties 
  * @param {*} scriptMode 
  * @param {*} addQuote 
+ * @param {*} asIs 
+ * @returns 
  */
-function generateProperties(properties, scriptMode, addQuote = false) {
+function generateProperties(properties, scriptMode, addQuote = false, asIs) {
     return properties.reduce((accum, prop) => {
-        accum[prop.key.name || prop.key.value] = getValueFromAst(prop.value, addQuote, scriptMode);
+        accum[prop.key.name || prop.key.value] = getValueFromAst(prop.value, addQuote, scriptMode, asIs);
         return accum;
     }, {});
 }

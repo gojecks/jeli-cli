@@ -79,6 +79,23 @@ function verifyVersion(version) {
     return 'latest';
 }
 
+/**
+ * 
+ * @param {*} compilerObject 
+ */
+function saveCompilerData(compilerObject) {
+    /**
+     * remove unwanted data from compilerObject
+     * before saving it
+     */
+    delete compilerObject.options;
+    delete compilerObject.output;
+    delete compilerObject.buildOptions;
+    delete compilerObject.globalImports;
+    const metaDataFilePath = path.join(compilerObject.options.output.folder, compilerObject.entryFile, '..', './metadata.json');
+    exports.writeFile(metaDataFilePath, JSON.stringify(compilerObject, null, 2).replace(/[']/g, ''));
+}
+
 exports.PATTERN = PATTERN;
 /**
  * 
@@ -111,8 +128,7 @@ exports.writeFile = async function(filePath, data) {
  * @param {*} filePath 
  * @param {*} compilerObject 
  */
-exports.saveCompilerData = async function(compilerObject, fileNames) {
-    const metaDataFilePath = path.join(compilerObject.options.output.folder, compilerObject.entryFile, '..', './metadata.json');
+exports.generateBundleData = async function(compilerObject, fileNames) {
     /**
      * existing and new packageJSON path
      */
@@ -147,14 +163,7 @@ exports.saveCompilerData = async function(compilerObject, fileNames) {
     }
 
     exports.writeFile(outputPackageJSON, JSON.stringify(packageJSON, null, 2));
-    /**
-     * remove unwanted data from compilerObject
-     * before saving it
-     */
-    delete compilerObject.options;
-    delete compilerObject.output;
-    delete compilerObject.buildOptions;
-    exports.writeFile(metaDataFilePath, JSON.stringify(compilerObject, null, 2).replace(/[']/g, ''));
+    saveCompilerData(compilerObject);
 }
 
 /**
@@ -258,19 +267,20 @@ exports.outputLibraryFiles = async function(compilerObject, scriptBody, moduleNa
         files[type] = await buildByType(type, scriptBody, moduleName, compilerObject);
     }
 
-    await exports.copyFiles(compilerObject.options.output.copy);
-    await exports.saveCompilerData(compilerObject, files);
+    await exports.copyFiles(compilerObject);
+    await exports.generateBundleData(compilerObject, files);
 };
 
 /**
  * 
  * @param {*} filesToCopy 
  */
-exports.copyFiles = async filesToCopy => {
-    if (filesToCopy) {
-        for (const file of filesToCopy) {
+exports.copyFiles = async compilerObject => {
+    if (compilerObject.options.output.copy) {
+        for (const file of compilerObject.options.output.copy) {
             try {
-                fs.copySync(file.src, file.dest, {
+                var dest = `${compilerObject.options.output.folder}${file.dest || (path.basename(file.src) + '/')}`;
+                fs.copySync(file.src, dest, {
                     recursive: true,
                     overwrite: true
                 });
@@ -314,7 +324,7 @@ exports.outputApplicationFiles = async function(compilerObject, scriptBody, chan
     }
 
     if (!changes) {
-        await exports.copyFiles(compilerObject.options.output.copy);
+        await exports.copyFiles(compilerObject);
         await writeCss(compilerObject.options, changes);
         if (compilerObject.options.output.view) {
             exports.saveApplicationView(compilerObject);
@@ -405,8 +415,6 @@ function isModule(annotations) {
     return annotations && (annotations.find(annot => annot.isModule) || {}).fn;
 }
 
-
-
 /**
  * 
  * @param {*} compilerObject 
@@ -436,6 +444,7 @@ async function resolveModules(compilerObject, fileChanged) {
         const allowBuild = (!fileChanged || (fileChanged && helper.is(fileChanged, filePath)));
         files.push(`'${filePath}': ${await generateModuleDeps(compilerObject, filePath, allowBuild)}`);
     }
+
     return `{\n${files.join(',\n')}\n}`;
 }
 
@@ -445,18 +454,24 @@ async function resolveModules(compilerObject, fileChanged) {
  * @param {*} folder 
  */
 exports.pushStyle = (config, appendFolder) => {
-    const result = helper.stringifyContent(parseStyle(config).css.toString());
+    const result = helper.stringifyContent(parseStyle(config));
     if (appendFolder) {
         appendFolder.push(result);
     } else {
-        cssFileHolder.set(config.elementFilePath, result);
+        cssFileHolder.set(config.elementFilePath, { result, config });
     }
 }
 
+/**
+ * 
+ * @param {*} compilerObject 
+ * @param {*} changes 
+ */
 exports.styleChanges = async(compilerObject, changes) => {
     const elementFilePath = compilerObject.output.styles[changes.filePath];
-    this.pushStyle({
-        file: changes.filePath,
+    const existingContent = cssFileHolder.get(elementFilePath);
+    this.pushStyle(existingContent ? existingContent.config : {
+        styleUrl: changes.filePath,
         elementFilePath
     });
 
@@ -464,14 +479,21 @@ exports.styleChanges = async(compilerObject, changes) => {
 };
 
 function parseStyle(config) {
-    return nodeSass.renderSync({
-        file: config.file,
-        data: config.style,
-        outputStyle: 'compressed',
-        outFile: config.outFile,
-        sourceMap: false,
-        importer: urlLoader
-    });
+    const style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
+    if (!style) return "";
+    try {
+        return nodeSass.renderSync({
+            data: attachSelector(style),
+            outputStyle: 'compressed',
+            outFile: config.outFile,
+            sourceMap: false,
+            importer: urlLoader
+        }).css.toString();
+    } catch (e) {
+        console.log(`styling error: ${e.message || e} for ${config.styleUrl}`);
+        return "";
+    }
+
 
     /**
      * 
@@ -484,9 +506,21 @@ function parseStyle(config) {
         // prev is the previously resolved path.
         // done is an optional callback, either consume it or return value synchronously.
         // this.options contains this options hash
+        const filePath = path.resolve(prev, '..', path.dirname(config.styleUrl), url);
+        let content = '';
+        try {
+            content = fs.readFileSync(filePath, 'utf8');
+        } catch (e) {
+            helper.console.error(`unable to read file ${helper.colors.yellow(filePath)} imported in ${helper.colors.yellow(config.styleUrl)} `);
+        }
+
         return ({
-            contents: fs.readFileSync(path.resolve(prev, '..', url), 'utf8')
+            contents: attachSelector(content)
         });
+    }
+
+    function attachSelector(result) {
+        return (result ? (config.selector ? `${config.selector}{${result}}` : result) : undefined);
     }
 }
 
@@ -499,11 +533,11 @@ async function writeCss(options) {
     if (options.output.styles) {
         for (const style of options.output.styles) {
             exports.pushStyle({
-                file: style
+                styleUrl: style
             }, styles);
         }
     }
-    cssFileHolder.forEach(css => styles.push(css));
+    cssFileHolder.forEach(css => { if (css.result) styles.push(css.result); });
     const script = loadTemplate('css', { styles });
     styles.length = 0;
     await exports.writeFile(`${options.output.folder}/styles.js`, script);

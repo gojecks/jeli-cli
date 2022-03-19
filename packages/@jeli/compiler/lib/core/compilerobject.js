@@ -101,9 +101,7 @@ async function CompilerObject(options, buildOptions, resolvers) {
     function outPutObject(fileEntry) {
         Object.defineProperties(this, {
             options: {
-                get: function() {
-                    return options;
-                }
+                get: () => options
             },
             buildOptions: {
                 get: () => buildOptions
@@ -121,7 +119,8 @@ async function CompilerObject(options, buildOptions, resolvers) {
             modules: {},
             global: [],
             templates: {},
-            styles: {}
+            styles: {},
+            tokens: {}
         };
         this.required = {};
         this.exports = [];
@@ -223,7 +222,7 @@ exports.getPipeProvider = (pipeName, compilerObject) => {
  * @param {*} metaDataPath 
  * @param {*} moduleName 
  */
-exports.resolveMetaData = (deps, importItem) => {
+exports.resolveMetaData = async(deps, importItem) => {
     if (!_metaDataCache.hasOwnProperty(importItem.source)) {
         if (deps.metadata && fs.existsSync(deps.metadata)) {
             _metaDataCache[importItem.source] = JSON.parse(fs.readFileSync(deps.metadata));

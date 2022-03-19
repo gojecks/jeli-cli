@@ -27,6 +27,18 @@ module.exports = compilerObject => {
         },
         getPipe: pipeName => {
             return getPipeProvider(pipeName, compilerObject)
+        },
+        /**
+         * 
+         * @param {*} requiredModule 
+         * @param {*} compilerObject 
+         */
+        getExportedModule: (requiredModule) => {
+            if (compilerObject.jModule.hasOwnProperty(requiredModule)) {
+                return compilerObject.jModule[requiredModule];
+            }
+            const libModules = findTokenInGlobalImports(requiredModule, compilerObject, 'jModule');
+            return libModules && libModules[requiredModule];
         }
     };
 }

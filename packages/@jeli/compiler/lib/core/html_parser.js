@@ -7,10 +7,11 @@
  const helper = require('@jeli/cli-utils');
  const restrictedCombination = ['j-template', 'j-place', 'case', 'default'];
  const formInputs = ['select', 'input', 'textarea'];
- const standardAttributes = 'id|class|style|title|dir|lang';
+ const standardAttributes = 'id|class|style|title|dir|lang|aria';
  const isComponent = tagName => helper.isContain('-', tagName);
  const oneWayBinding = /\{(.*?)\}/;
  const twoWayBinding = /\@\{(.*?)\}/;
+ const charMatchers = [':', '*', '#', '@', '{', '('];
  const selectorTypes = {
      '.': 'class',
      '#': 'id',
@@ -91,6 +92,9 @@
              /**
               * remove the directives prop
               */
+             if (helper.is(item.name, 'j-place')) {
+                 jPlaceCompiler(newItem, parent);
+             }
              return buildStructuralDirectiveTemplates(newItem, parent);
          }
 
@@ -137,7 +141,12 @@
          if (viewChild && viewChild.length) {
              const option = viewChild.find(view => {
                  const castedValue = view.value.replace(/\'/g, '');
-                 return (helper.is(item.refId, castedValue)) || (helper.is(item.name, castedValue) || (view.isdir && item.directives && item.directives.hasOwnProperty(castedValue)));
+                 return (
+                     helper.is(item.refId, castedValue) ||
+                     helper.is(item.name, castedValue) ||
+                     (view.isdir && item.directives && item.directives.hasOwnProperty(castedValue)) ||
+                     (item.attr && helper.is(item.attr['selector'], castedValue))
+                 );
              });
 
              if (option) {
@@ -252,12 +261,16 @@
              /**
               * attach template
               */
-             if (!parent.templates) parent.templates = {};
-             parent.templates[element.refId] = element;
+             if (!parent.templates) parent.templates = {
+                 place: []
+             };
+             parent.templates.place.push(element);
          } else if (templateOutletHolder[element.refId]) {
              templateOutletHolder[element.refId].forEach(outletElement => {
                  const index = outletElement.index;
-                 Object.assign(outletElement, helper.cloneObject(element));
+                 for (const prop in element) {
+                     outletElement[prop] = element[prop];
+                 }
                  outletElement.index = index;
                  if (outletElement.context) {
                      generateOutletContext(outletElement);
@@ -314,6 +327,11 @@
          // check for child content
          if (element.children) {
              errorLogs.push(`<j-place/> element does not support child elements`);
+             return null;
+         }
+
+         if (element.refId && element.attr && element.attr.selector) {
+             errorLogs.push(`<j-place/> element does not support [selector] and [#REFID], please use [selector="#REFID"] instead`);
              return null;
          }
 
@@ -394,11 +412,11 @@
       */
      function createTextNode(data, isAttr) {
          const ast = interpolation.parser(data, pipesProvider);
-         if (ast.templates) {
+         if (ast.length > 1) {
              /**
               * pasrse ast
               */
-             ast.templates.forEach(item => item[1].prop = expressionAst(item[1].prop))
+             ast[1].forEach(item => item[1].prop = expressionAst(item[1].prop))
          }
          return isAttr ? ast : {
              type: 'text',
@@ -458,7 +476,7 @@
       */
      function attributeParser(node, value, elementRefInstance) {
          var firstCharMatcher = node.charAt(0);
-         if (helper.isContain(firstCharMatcher, [':', '*', '#', '@', '{', '('])) {
+         if (helper.isContain(firstCharMatcher, charMatchers)) {
              parseFirstCharMatcher(firstCharMatcher, node, value);
          } else if (helper.isContain('attr-', node)) {
              setAttributeBinder(node, value, true);
@@ -595,18 +613,22 @@
 
          /**
           * Event Binding
-          * e.g @click="listener()" @on-custom-event="someCustomListener"
+          * e.g @click="listener()" 
+          * @onCustomEvent="someCustomListener"
+          * @click-delegate:elementName
           * @param {*} dir 
           */
          function _parseEventBinding(dir) {
              try {
+                 dir = dir.split(/[@:]/g).splice(1);
+                 const delegateOrNorm = dir.shift().split('-');
                  const item = {
-                     name: dir.replace(/[@]/g, ''),
+                     name: delegateOrNorm.shift(),
                      value: parseAst(value)
                  };
 
-                 if (helper.isContain('-', dir)) {
-                     item.custom = true;
+                 if (dir.length && delegateOrNorm.length) {
+                     item.target = dir.pop();
                  }
 
                  // set the item
@@ -803,7 +825,7 @@
          const props = Object.keys(element.attr || {}).concat(Object.keys(element.props || {}));
          if (props.length) {
              props.forEach(prop => {
-                 if (!helper.isContain(prop, standardAttributes) && (!definition[0].obj.props ||
+                 if (!helper.isContain(prop.split('-')[0], standardAttributes) && (!definition[0].obj.props ||
                          !isPropertyValueMap(prop, definition[0].obj.props) && !_isDirective(prop))) {
                      errorLogs.push(`Element <${helper.colors.yellow(element.name)}> does not support this property {${helper.colors.yellow(prop)}}`);
                  }

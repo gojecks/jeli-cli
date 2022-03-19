@@ -1,5 +1,6 @@
 const helper = require('@jeli/cli-utils');
 const htmlParser = require('./html_parser');
+const loader = require('./loader');
 const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges } = require('./output');
 const { attachViewSelectorProviders } = require('./view.provider');
 const annotationProps = ['name', 'selector', 'exportAs', 'module'];
@@ -22,9 +23,8 @@ async function CoreGenerator(compilerObject, entry, changes) {
             case ('service'):
             case ('provider'):
             case ('pipe'):
-                _resolveDependecies(compilerObject.Service[definition.fn], definition.fn, filePath);
-                definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(compilerObject.Service[definition.fn], annotationProps)};`);
-                quoteFix(annotationProps, compilerObject.Service[definition.fn]);
+                definition.annotations.push(`${definition.fn}.annotations = ${helper.objectStringToAsIs(compilerObject.Service[definition.fn], annotationProps)};`);
+                helper.quoteFix(annotationProps, compilerObject.Service[definition.fn]);
                 if (compilerObject.Service[definition.fn].static) {
                     definition.annotations.push(`${definition.fn}.annotations.instance = ${definition.fn};`);
                 }
@@ -35,18 +35,36 @@ async function CoreGenerator(compilerObject, entry, changes) {
                 if (!obj.module) {
                     helper.abort(`${helper.colors.yellow(definition.fn)} is not registered to any Module`);
                 }
-                const template = obj.template;
-                const viewChild = obj.viewChild;
+
+                let template = obj.template;
+                let styleUrl = obj.styleUrl;
                 const style = obj.style;
+                const viewChild = obj.viewChild;
+                if (obj.templateUrl) {
+                    const templatePath = loader.joinFilePath(filePath, '..', obj.templateUrl);
+                    template = loader.templateContentLoader(templatePath);
+                    compilerObject.output.templates[templatePath] = filePath;
+                }
+
+                if (styleUrl) {
+                    styleUrl = loader.joinFilePath(filePath, '..', styleUrl);
+                    compilerObject.output.styles[styleUrl] = filePath;
+                }
+
+
+
+
                 /**
                  * remove unused ctors
                  */
                 delete obj.viewChild;
+                delete obj.templateUrl;
+                delete obj.styleUrl;
                 delete obj.template;
                 delete obj.style;
-                _resolveDependecies(obj, definition.fn, filePath);
-                definition.annotations.push(`${definition.fn}.annotations = ${writeAnnot(obj, annotationProps)};`);
-                quoteFix(annotationProps, obj);
+
+                definition.annotations.push(`${definition.fn}.annotations = ${helper.objectStringToAsIs(obj, annotationProps)};`);
+                helper.quoteFix(annotationProps, obj);
                 if (helper.is(definition.type, 'Element')) {
                     if (template) {
                         const parsedHtml = htmlParser(template, viewChild, obj.selector, compilerResolver, definition.fn);
@@ -58,10 +76,12 @@ async function CoreGenerator(compilerObject, entry, changes) {
                     }
 
                     // style parser
-                    if (style) {
+                    if (style || styleUrl) {
                         pushStyle({
                             name: definition.fn,
+                            selector: obj.selector,
                             style,
+                            styleUrl,
                             elementFilePath: filePath
                         });
                         // definition.annotations.push(`${definition.fn}.style = ${helper.stringifyContent(style)};`);
@@ -77,7 +97,7 @@ async function CoreGenerator(compilerObject, entry, changes) {
                 }
 
                 if (compilerObject.jModule[definition.fn].requiredModules) {
-                    definition.annotations.push(`!function(){/** bootstrap module**/${writeAnnot(compilerObject.jModule[definition.fn].requiredModules)}.forEach(function(_module){ _module()});\n}();`);
+                    definition.annotations.push(`!function(){/** bootstrap module**/${helper.objectStringToAsIs(compilerObject.jModule[definition.fn].requiredModules)}.forEach(function(_module){ _module()});\n}();`);
                 }
                 break;
         }
@@ -85,30 +105,8 @@ async function CoreGenerator(compilerObject, entry, changes) {
         return generateScript(definition);
     }
 
-    /**
-     * 
-     * @param {*} annot 
-     */
-    function writeAnnot(annot, props) {
-        if (props) {
-            quoteFix(props, annot, true);
-        }
-        return JSON.stringify(annot, null, 4).replace(/["]/g, '');
-    }
 
-    /**
-     * This function set or remove singleQuote from property value
-     * e.g ["'selector'","'exportAs'"]
-     * @param {*} props 
-     * @param {*} annot 
-     */
-    function quoteFix(props, annot, addQuote) {
-        props.forEach(prop => {
-            if (annot.hasOwnProperty(prop)) {
-                annot[prop] = addQuote ? `'${annot[prop]}'` : helper.removeSingleQuote(annot[prop]);
-            }
-        });
-    }
+
 
     /**
      * 
@@ -125,32 +123,6 @@ async function CoreGenerator(compilerObject, entry, changes) {
         }
 
         return output;
-    }
-
-    /**
-     * 
-     * @param {*} obj 
-     * @param {*} fn 
-     * @param {*} filePath 
-     */
-    function _resolveDependecies(obj, fn, filePath) {
-        if (obj.DI) {
-            Object.keys(obj.DI).forEach(name => {
-                const config = obj.DI[name];
-                const service = compilerResolver.getService(name, filePath);
-                if (!service && !config.optional) {
-                    helper.console.error(`Unable to resolve depenedecy: ${helper.colors.yellow(name)} -> ${helper.colors.yellow(fn)} in ${helper.colors.yellow(filePath)}`);
-                }
-
-                if (service) {
-                    if (service.DI && service.DI.hasOwnProperty(fn)) {
-                        helper.console.error(`Found circular dependency: ${helper.colors.yellow(fn)} -> ${helper.colors.yellow(name)} in ${helper.colors.yellow(filePath)}`);
-                    }
-
-                    config.factory = name;
-                }
-            });
-        }
     }
 
     function generateScript(definition) {
@@ -195,15 +167,15 @@ async function CoreGenerator(compilerObject, entry, changes) {
                 return output;
             }
 
-            const element = compilerObject.output.modules[filePath];
-            if (element.annotations) {
-                for (const annotation of element.annotations) {
-                    element.source.push(compile(annotation, filePath));
+            const implementation = compilerObject.output.modules[filePath];
+            if (implementation.annotations) {
+                for (const annotation of implementation.annotations) {
+                    implementation.source.push(compile(annotation, filePath));
                 }
             }
 
             if (isLib) {
-                output.push(element.source.join(''));
+                output.push(implementation.source.join(''));
             }
 
             return output;

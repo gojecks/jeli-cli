@@ -19,18 +19,18 @@ exports.getDelimeter = () => defaultTemplateExp;
  */
 exports.parser = (ast, pipesProvider) => {
     ast = this.getTemplateKeys(ast);
-    var binding = {
-        text: ast.data
-    };
+    var binding = [ast.data];
 
     if (ast.exprs.length) {
-        binding.templates = ast.exprs.map((key, idx) => {
-            binding.once = key.charAt(0) === ":";
-            if (binding.once) {
+        var once = false;
+        binding.push(ast.exprs.map((key, idx) => {
+            once = key.charAt(0) === ":";
+            if (once) {
                 key = key.slice(1);
             }
             return [delimeter.join(idx), exports.removeFilters(key, pipesProvider)];
-        });
+        }));
+        binding.push(once);
     }
 
     return binding;

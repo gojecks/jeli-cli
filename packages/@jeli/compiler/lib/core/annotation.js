@@ -1,8 +1,9 @@
 const helper = require('@jeli/cli-utils');
 const { escogen, parseAst } = require('./ast.generator');
-const { isExportedToken, findTokenInGlobalImports } = require('./compilerobject');
+const { isExportedToken } = require('./compilerobject');
 const { parseQuery } = require('./query_selector');
 const loader = require('./loader');
+const ComponentsResolver = require('./components.facade');
 const AnnotationsEnum = {
     SERVICES: 'SERVICES',
     REQUIREDMODULES: 'REQUIREDMODULES',
@@ -17,207 +18,257 @@ const AnnotationsEnum = {
  * @param {*} filePath 
  * @param {*} outputInstance 
  * @param {*} compilerObject 
+ * @param {*} importObject 
  */
 module.exports = async function(ast, filePath, outputInstance, compilerObject) {
-        const annotations = [escogen(ast.impl)];
-        const compilerError = [];
-        const fn = ast.impl[0].id.name;
-        try {
-            _structureDI(ast.definitions);
-            switch (ast.type.toLowerCase()) {
-                case ('directive'):
-                case ('element'):
-                    _registerOrThrowError(ast.type, fn, ast.definitions,
-                        `Class ${fn} is already registered, please use a prefix to differentiate them.`);
-                    elementParser(ast.definitions, ast.type, fn);
-                    break;
-                case ('service'):
-                case ('provider'):
-                case ('pipe'):
-                    _registerOrThrowError('Service', fn, ast.definitions,
-                        `Service ${fn} is already registered, please rename Class or use a prefix`);
-                    break;
-                case ('jmodule'):
-                    _registerOrThrowError(ast.type, fn, ast.definitions, `Modules ${fn} is already registered.`);
-                    validateModule(ast.definitions, fn);
-                    break;
-            }
-        } catch (e) {
-            console.log(e)
-        }
+    const annotations = [escogen(ast.impl)];
+    const compilerError = [];
+    const fn = ast.impl[0].id.name;
+    const componentsResolver = ComponentsResolver(compilerObject);
 
-        if (compilerError.length) {
-            loader.spinner.fail(`Errors found in: ${helper.colors.yellow(filePath)}\n`)
-            helper.console.error(compilerError.join('\n'));
-        } else {
-            outputInstance.annotations.push({
-                fn,
-                type: ast.type,
-                isModule: helper.is(ast.type, 'jModule'),
-                annotations
-            })
+    try {
+        _structureDI(ast.definitions);
+        _validateDI(ast.definitions.DI, fn, fn);
+        switch (ast.type.toLowerCase()) {
+            case ('directive'):
+            case ('element'):
+                _registerOrThrowError(ast.type, fn, ast.definitions,
+                    `Class ${helper.colors.yellow(fn)} is already registered, please use a prefix to differentiate them.`);
+                elementParser(ast.definitions, ast.type, fn);
+                break;
+            case ('service'):
+            case ('provider'):
+            case ('pipe'):
+                _registerOrThrowError('Service', fn, ast.definitions,
+                    `Service ${helper.colors.yellow(fn)} is already registered, please rename Class or use a prefix`);
+                break;
+            case ('jmodule'):
+                _registerOrThrowError(ast.type, fn, ast.definitions, `Modules ${helper.colors.yellow(fn)} is already registered.`);
+                validateModule(ast.definitions, fn);
+                break;
         }
+    } catch (e) {
+        console.log(e)
+    }
 
+    if (compilerError.length) {
+        loader.spinner.fail(`Errors found in: ${helper.colors.yellow(filePath)}\n`)
+        helper.console.error(compilerError.join('\n'));
+    } else {
+        outputInstance.annotations.push({
+            fn,
+            type: ast.type,
+            isModule: helper.is(ast.type, 'jModule'),
+            annotations
+        })
+    }
+
+
+    /**
+     * 
+     * @param {*} moduleObj 
+     * @param {*} fnName 
+     */
+    function validateModule(moduleObj, fnName) {
+        Object.keys(moduleObj).forEach(_validate);
 
         /**
          * 
-         * @param {*} moduleObj 
-         * @param {*} fnName 
+         * @param {*} type 
          */
-        function validateModule(moduleObj, fnName) {
-            Object.keys(moduleObj).forEach(_validate);
-
-            /**
-             * 
-             * @param {*} type 
-             */
-            function _validate(type) {
-                switch (type.toUpperCase()) {
-                    case (AnnotationsEnum.SERVICES):
-                        _validateService();
-                        break;
-                    case (AnnotationsEnum.REQUIREDMODULES):
-                        _validateRequiredModules();
-                        break;
-                    case (AnnotationsEnum.SELECTORS):
-                        _validateSelectors();
-                        break;
-                    case (AnnotationsEnum.EXPORTS):
-                        _validateExports();
-                        break;
-                    case (AnnotationsEnum.ROOTELEMENT):
-                        _validateRootElement();
-                        break;
-                    default:
-                        loader.spinner.fail(`\nunsupported Module definition<${helper.colors.yellow(type)}> defined in ${helper.colors.yellow(filePath)}`);
-                        helper.abort();
-                        break;
-                }
-            }
-
-            /**
-             * Module Service Validator
-             */
-            function _validateService() {
-                moduleObj.services = moduleObj.services.filter(service => {
-                    if (helper.typeOf(service, 'object')) {
-                        validateToken(service.name);
-                        annotations.push(`${service.name}.register(${getTokenValue(service)}, true);`);
-                        return false;
-                    } else if (!compilerObject.Service.hasOwnProperty(service)) {
-                        compilerError.push(`service -> ${service} implementation not found.`);
-                    }
-
-                    if (!compilerObject.Service[service].module) {
-                        compilerObject.Service[service].module = fnName;
-                    }
-
-                    return true;
-                });
-            }
-
-            /**
-             * validate requiredModules
-             */
-            function _validateRequiredModules() {
-                moduleObj.requiredModules.forEach(reqModule => {
-                    const module = getExportedModule(reqModule, compilerObject);
-                    if (!module) {
-                        compilerError.push(`required module {${helper.colors.yellow(reqModule)}} -> {${helper.colors.yellow(fnName)}} was not found, please import the module. \n help: "${helper.colors.green("import {" +reqModule+"} from 'REQUIRED_PATH';")}"\n`);
-                    }
-
-                    /**
-                     * check for circular requiredModules
-                     */
-                    if (module && module.requiredModules && module.requiredModules.includes(fnName)) {
-                        compilerError.push(`Circular referrence found:  ${helper.colors.yellow(reqModule)} -> ${helper.colors.yellow(fnName)} -> ${helper.colors.yellow(reqModule)}`);
-                    }
-                });
-            }
-
-            /**
-             * validate selectors
-             */
-            function _validateSelectors() {
-                moduleObj.selectors.forEach(elementFn => {
-                    const element = compilerObject.Directive[elementFn] || compilerObject.Element[elementFn];
-                    if (!element) {
-                        compilerError.push(`${elementFn} is registered in ${fnName} module but implementation does not exists.`);
-                        return;
-                    }
-
-                    if (element.module && element.module !== fnName) {
-                        compilerError.push(`${elementFn} is registered to ${element.module} and ${fnName} modules`);
-                    }
-
-                    element.module = fnName;
-                });
-            }
-
-            /**
-             * validate the rootElement
-             */
-            function _validateRootElement() {
-
-            }
-
-            /**
-             * validate exported elements
-             */
-            function _validateExports() {
-
-            }
-
-            /**
-             * 
-             * @param {*} requiredModule 
-             * @param {*} compilerObject 
-             */
-            function getExportedModule(requiredModule, compilerObject) {
-                if (compilerObject.jModule.hasOwnProperty(requiredModule)) {
-                    return compilerObject.jModule[requiredModule];
-                }
-                const libModules = findTokenInGlobalImports(requiredModule, compilerObject, 'jModule');
-                return libModules && libModules[requiredModule];
+        function _validate(type) {
+            switch (type.toUpperCase()) {
+                case (AnnotationsEnum.SERVICES):
+                    _validateService();
+                    break;
+                case (AnnotationsEnum.REQUIREDMODULES):
+                    _validateRequiredModules();
+                    break;
+                case (AnnotationsEnum.SELECTORS):
+                    _validateSelectors();
+                    break;
+                case (AnnotationsEnum.EXPORTS):
+                    _validateExports();
+                    break;
+                case (AnnotationsEnum.ROOTELEMENT):
+                    _validateRootElement();
+                    break;
+                default:
+                    loader.spinner.fail(`\nunsupported Module definition<${helper.colors.yellow(type)}> defined in ${helper.colors.yellow(filePath)}`);
+                    helper.abort();
+                    break;
             }
         }
 
         /**
-         * 
-         * @param {*} token 
+         * Module Service Validator
          */
-        function validateToken(token) {
-            if (!isExportedToken(token, compilerObject))
-                compilerError.push(`Token<${token}> definition not found.`);
+        function _validateService() {
+            moduleObj.services = moduleObj.services.filter(service => {
+                if (helper.typeOf(service, 'object')) {
+                    validateToken(service);
+                    annotations.push(`${service.name}.register(${getTokenValue(service)}, true);`);
+                    return false;
+                } else if (!compilerObject.Service.hasOwnProperty(service)) {
+                    compilerError.push(`service -> ${service} implementation not found.`);
+                    return false;
+                }
+
+                if (!compilerObject.Service[service].module) {
+                    compilerObject.Service[service].module = fnName;
+                }
+
+                return true;
+            });
         }
 
         /**
-         * 
-         * @param {*} service 
+         * validate requiredModules
          */
-        function getTokenValue(service) {
-            const token = Object.keys(service).reduce((accum, key) => {
-                if (key !== 'name') {
-                    accum.push(`${key} : ${toObjectString(service[key], key == 'DI')}`);
+        function _validateRequiredModules() {
+            moduleObj.requiredModules = moduleObj.requiredModules.map(reqModule => {
+                if (helper.typeOf(reqModule, 'object')) {
+                    const moduleDef = reqModule;
+                    reqModule = reqModule.namespaces.shift();
+                    annotations.push(`/** initialize ${reqModule} static call **/ ${reqModule}${moduleDef.namespaces.join('.')}.${moduleDef.fn}.apply(null, ${helper.objectStringToAsIs(moduleDef.args)});`);
                 }
-                return accum;
-            }, []);
 
-            /**
-             * 
-             * @param {*} value 
-             * @param {*} isdeps 
-             */
-            function toObjectString(value, isdeps) {
-                if (Array.isArray(value)) {
-                    if (isdeps) return `{${value.map(key => `${key} : {factory: ${key}}`)}}`;
-                    return `[${value}]`;
+                const module = componentsResolver.getExportedModule(reqModule);
+                if (!module) {
+                    compilerError.push(`required module {${helper.colors.yellow(reqModule)}} -> {${helper.colors.yellow(fnName)}} was not found, please import the module. \n help: "${helper.colors.green("import {" +reqModule+"} from 'REQUIRED_PATH';")}"\n`);
                 }
-                return value;
-            }
 
-            return `{${token.join(', ')}}`;
+                /**
+                 * check for circular requiredModules
+                 */
+                if (module && module.requiredModules && module.requiredModules.includes(fnName)) {
+                    compilerError.push(`Circular referrence found:  ${helper.colors.yellow(reqModule)} -> ${helper.colors.yellow(fnName)} -> ${helper.colors.yellow(reqModule)}`);
+                }
+
+                return reqModule;
+            });
         }
+
+        /**
+         * validate selectors
+         */
+        function _validateSelectors() {
+            moduleObj.selectors.forEach(elementFn => {
+                const element = compilerObject.Directive[elementFn] || compilerObject.Element[elementFn];
+                if (!element) {
+                    compilerError.push(`${elementFn} is registered in ${fnName} module but implementation does not exists.`);
+                    return;
+                }
+
+                if (element.module && element.module !== fnName) {
+                    compilerError.push(`${elementFn} is registered to ${element.module} and ${fnName} modules`);
+                }
+
+                element.module = fnName;
+            });
+        }
+
+        /**
+         * validate the rootElement
+         */
+        function _validateRootElement() {
+
+        }
+
+        /**
+         * validate exported elements
+         */
+        function _validateExports() {
+
+        }
+    }
+
+    /**
+     * 
+     * @param {*} token 
+     */
+    function validateToken(token) {
+        if (!isExportedToken(token.name, compilerObject))
+            compilerError.push(`Token<${token.name}> definition not found.`);
+        if (token.useClass) {
+            const serviceImpl = compilerObject.Service[token.useClass];
+            if (!serviceImpl) {
+                compilerError.push(`Missing implementation for ${token.useClass} provided in ${token.name}`);
+            } else if (serviceImpl.DI) {
+                _validateDI(serviceImpl.DI, token.name, token.useClass);
+            }
+        } else if (token.factory && token.DI) {
+            token.DI.forEach(di => {
+                if (helper.typeOf(di, 'string') && !/['"]/.test(di.charAt(0)) && !isExportedToken(di, compilerObject)) {
+                    compilerError.push(`unable to find dependency ${helper.colors.yellow(di)}`);
+                }
+            });
+        }
+    }
+
+    /**
+     * 
+     * @param {*} deps 
+     * @param {*} tokenName 
+     * @param {*} className 
+     */
+    function _validateDI(deps, tokenName, className, entryClass) {
+        if (!deps) return;
+        deps.forEach(di => {
+            if (helper.typeOf(di, 'string')) {
+                const service = componentsResolver.getService(di);
+                if (service) {
+                    if (service.DI) {
+                        if (service.DI.includes(tokenName))
+                            compilerError.push(`\nFound circular dependency: ${helper.colors.yellow(tokenName)} in ${helper.colors.yellow(di)} -> ${helper.colors.yellow(className)} ${entryClass ? '-> '+ helper.colors.yellow(entryClass): ''} as ${helper.colors.yellow(tokenName)}`);
+                        else
+                            _validateDI(service.DI, tokenName, di, className);
+                    }
+                } else if (!entryClass) {
+                    compilerError.push(`\nservice not found: ${helper.colors.yellow(di)}`);
+                }
+            } else if (helper.typeOf(di, 'object') && !di.optional) {
+                compilerError.push(`unable to resolve dependency: ${helper.colors.yellow(di.name)} -> ${helper.colors.yellow(fn)}}`);
+            }
+        });
+    }
+
+    /**
+     * 
+     * @param {*} service 
+     */
+    function getTokenValue(service) {
+        const token = Object.keys(service).reduce((accum, key) => {
+            if (key !== 'name') {
+                accum.push(`${key}: ${toObjectString(service[key], key == 'DI')}`);
+            }
+            return accum;
+        }, []);
+
+        /**
+         * 
+         * @param {*} value 
+         * @param {*} isdeps 
+         */
+        function toObjectString(value, isdeps) {
+            const strinifyObj = v => helper.typeOf(v, 'object') ? JSON.stringify(v) : v;
+            const parseDI = v => v.map(di => {
+                if (helper.typeOf(di, 'string') && !/['"]/.test(di.charAt(0))) {
+                    return di;
+                } else {
+                    return `{instance:${strinifyObj(di)}}`;
+                }
+            });
+
+            if (Array.isArray(value)) {
+                if (isdeps) return `[${parseDI(value)}]`;
+                return `[${d.map(v => strinifyObj(v))}]`;
+            }
+            return value;
+        }
+
+        return `{${token.join(', ')}}`;
+    }
 
     /**
      * 
@@ -272,23 +323,8 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
                      Which states a custom element should contain an hyphen e.g <my-element>`);
                 }
 
-                if (obj.templateUrl) {
-                    const templatePath = loader.joinFilePath(filePath, '..', obj.templateUrl);
-                    obj.template = loader.templateContentLoader(templatePath);
-                    compilerObject.output.templates[templatePath] = filePath;
-                }
-
-                if (obj.styleUrl) {
-                    const stylePath = loader.joinFilePath(filePath, '..', obj.styleUrl);
-                    obj.style = loader.templateContentLoader(stylePath);
-                    compilerObject.output.styles[stylePath] = filePath;
-                }
-
                 ParseViewChild(obj);
             }
-
-            delete obj.templateUrl;
-            delete obj.styleUrl;
 
         } catch (e) {
             console.log(e);
@@ -328,8 +364,7 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
         if (obj.resolve && obj.resolve.length) {
             obj.resolve.forEach(item => {
                 if (helper.typeOf(item, 'string') && !isExportedToken(item, compilerObject)) return;
-                else if (helper.typeOf(item, 'object')) {
-                }
+                else if (helper.typeOf(item, 'object')) {}
             });
         }
     }
@@ -340,18 +375,21 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
      */
     function _structureDI(obj) {
         if (obj.DI && obj.DI.length) {
-            obj.DI = obj.DI.reduce((accum, key) => {
-                const useName = helper.isContain("=", key);
-                const di = helper.stringToObjectNameValueMapping(key, useName);
-                if (useName) {
-                    obj.dynamicInjectors = true;
+            obj.DI = obj.DI.map(di => {
+                if (/[=:?]/.test(di)) {
+                    const useName = helper.isContain("=", di);
+                    const stValue = helper.stringToObjectNameValueMapping(di, useName);
+                    if (useName) {
+                        obj.dynamicInjectors = true;
+                    }
+                    stValue.tokenName = `'${stValue.name}'`;
+
+                    delete stValue.name;
+                    return stValue;
+                } else {
+                    return di;
                 }
-
-                accum[di.name] = di;
-                delete di.name;
-
-                return accum;
-            }, {});
+            });
         }
     }
 
@@ -367,11 +405,11 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
                 /**
                  * workaroud to add quote to arguments
                  */
-                if (Array.isArray(reg.value)){
-                    for(const ast of reg.value) {
+                if (Array.isArray(reg.value)) {
+                    for (const ast of reg.value) {
                         if (ast.type === "'call'") {
                             parseToString(ast.args);
-                        } 
+                        }
                     }
                 }
             }
@@ -384,9 +422,9 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
 
     function parseToString(list) {
         list.forEach((arg, idx) => {
-            if (helper.typeOf(arg, 'string')){
+            if (helper.typeOf(arg, 'string')) {
                 list[idx] = `'${arg}'`;
-            } else if(Array.isArray(arg)){
+            } else if (Array.isArray(arg)) {
                 parseToString(arg);
             }
         });

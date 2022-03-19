@@ -1,7 +1,6 @@
 const jeliUtils = require('@jeli/cli-utils');
 const path = require('path');
 const fs = require('fs');
-const { option } = require('grunt');
 
 const changeCWD = folder => {
     if (folder) {
@@ -19,7 +18,7 @@ const getSchema = (folder) => {
         jeliUtils.abort(`\nUnable to determine schema for this project, are you sure this is a jeli project?\n run "${jeliUtils.colors.yellow('jeli create PROJECT_NAME')}" to create a new project.`);
     }
 
-    return jsonSchemaPath;
+    return JSON.parse(fs.readFileSync(jsonSchemaPath));
 }
 
 const getPackageJson = folder => {
@@ -33,15 +32,16 @@ const getPackageJson = folder => {
  * @param {*} pushEvent 
  */
 exports.build = async function build(entry, options, pushEvent) {
-    const schemaPath = getSchema(options.cwd);
+    const jeliSchemaJSON = getSchema(options.cwd);
     changeCWD(options.cwd);
-    const jeliSchemaJSON = JSON.parse(fs.readFileSync(schemaPath));
     entry = entry || jeliSchemaJSON.default;
     if (!jeliSchemaJSON.projects.hasOwnProperty(entry)) {
         jeliUtils.abort(`\n unable to find configurations for ${entry} in schema`);
     }
 
     const jeliCompiler = require('@jeli/compiler');
+    // overwrite dist folder with options dist
+    jeliSchemaJSON.projects[entry].output.folder = options.dist;
     await jeliCompiler.builder(jeliSchemaJSON, entry, options);
     /**
      * start watcher
@@ -76,7 +76,6 @@ exports.build = async function build(entry, options, pushEvent) {
  * @param {*} options 
  */
 exports.serve = async function(entry, options) {
-    const schemaPath = getSchema(options.cwd);
     const { genServerOptions, attachListeners, cleanup } = require('./lib/utils/server');
     const os = require('os');
     const httpServer = require('./lib/server/create');
@@ -90,7 +89,7 @@ exports.serve = async function(entry, options) {
      * sample usage: test
      */
     changeCWD(options.cwd);
-    serverOptions.root = './dist';
+    serverOptions.root = `./.serve/${entry || 'main'}/`;
     serverOptions.entryFile = 'index.html';
     serverOptions.watch = true;
     /**
@@ -137,7 +136,8 @@ exports.serve = async function(entry, options) {
          * trigger the build instance
          */
         exports.build(entry, {
-            watch: true
+            watch: true,
+            dist: serverOptions.root
         }, event => server.pushEvent(event));
     });
 

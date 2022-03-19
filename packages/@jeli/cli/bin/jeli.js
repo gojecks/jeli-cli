@@ -86,7 +86,7 @@ program
     .command('new <type> <path-name>')
     .option('-p, --project <project-name>', 'Specify project name if multiple exists in workspace. (default: defaultProject)')
     .option('-c, --components <components>', 'Specify list of components to create. e.g [mers] = module,element,router,service')
-    .description('generate a new (Element|Directive|Service|Module)')
+    .description('generate a new (Element|Directive|Service|Module). Enter type c to generate multiple components')
     .action((type, pathName, cmd) => {
         require('../lib/generator')(type.toLowerCase(), pathName, jeliUtils.cleanArgs(cmd))
     })

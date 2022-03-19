@@ -1,0 +1,1 @@
+(function(){ "use strict"; var head = document.getElementsByTagName("head")[0]; [<%=styles%>].forEach(writeCssToDOM); function writeCssToDOM(css){ 'use strict'; if(!css) return; var element = document.createElement("style"); element.setAttribute("type", "text/css"); element.appendChild(document.createTextNode(css)); head.appendChild(element); }})();

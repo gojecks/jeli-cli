@@ -1,0 +1,4 @@
+<%=header%>
+var __buildOptions = <%=buildOptions%>;
+<%=scriptBody%>
+<%=footer%>

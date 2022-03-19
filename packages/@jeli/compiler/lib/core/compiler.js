@@ -90,7 +90,6 @@
              output.source.push(otherScripts);
          else
              currentInstance.output.global.push(otherScripts);
-
          for (const ast of source.annotations) {
              await annotationParser(ast, filePath, output, currentInstance);
          }
@@ -138,7 +137,7 @@
              addAbsolutePath(importItem, importFilePath, isLib);
          }
      } else {
-         if (resolvedDep) resolveMetaData(resolvedDep, importItem);
+         if (resolvedDep) await resolveMetaData(resolvedDep, importItem);
          else {
              loader.spinner.fail(`unable to resolve dependency ${importItem.source} -> ${parentPath}`);
              helper.console.error('compilation stopped');
@@ -234,12 +233,18 @@
          await CoreCompiler(compilerObject[name]);
      }
  };
-
+ /**
+  * 
+  * @param {*} compilerObject 
+  * @param {*} changes 
+  */
  exports.singleCompiler = async(compilerObject, changes) => {
      let moduleName = '';
      const moduleAssignable = ['Directive', 'Element', 'Pipe'];
+     // check if file was previouslyy compiled 
      if (compilerObject.files.hasOwnProperty(changes.filePath)) {
          const obj = compilerObject.output.modules[changes.filePath];
+         // remove all mapped annotations 
          if (obj && obj.annotations) {
              obj.annotations.forEach(annot => {
                  if (moduleAssignable.includes(annot.type)) {
@@ -248,13 +253,13 @@
                  delete compilerObject[annot.type][annot.fn];
              });
          }
-
+         // finally remove the object from compilerObject instance
          delete compilerObject.files[changes.filePath];
          delete compilerObject.output.modules[changes.filePath];
      }
      await processFile(compilerObject, changes.filePath);
      const newObject = compilerObject.output.modules[changes.filePath];
-     if (newObject.annotations && moduleName && compilerObject.jModule.hasOwnProperty(moduleName)) {
+     if (newObject && newObject.annotations && moduleName && compilerObject.jModule.hasOwnProperty(moduleName)) {
          newObject.annotations.forEach(annot => {
              if (moduleAssignable.includes(annot.type))
                  compilerObject[annot.type][annot.fn].module = moduleName;

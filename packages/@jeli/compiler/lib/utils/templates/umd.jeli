@@ -1,0 +1,9 @@
+(function (global, factory) {
+    (typeof define === 'function' && define.amd) ? define(<%=moduleName%>,[<%=importsAMD%>], factory) : (typeof exports === 'object' && module !== 'undefined') ? factory(exports<%=importsCJS%>): (global = global || self, factory((<%=globalName%> = <%=globalName%> || {}<%=globalNameSpace%>)<%=globalArgs%>));
+}(this, function (exports<%=args%>) {
+    'use strict';
+    var __buildOptions = <%=buildOptions%>;
+    <%=scriptBody%> 
+    <%=footer%> 
+    Object.defineProperty(exports, '__esModule', {value: true});
+}));

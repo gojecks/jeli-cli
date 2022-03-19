@@ -8,21 +8,39 @@
       'use strict';
       var protocol = window.location.protocol === 'http:' ? 'ws://' : 'wss://';
       var address = protocol + window.location.host + window.location.pathname + '/ws';
-      var socket = new WebSocket(address);
-      var modal = null;
-      socket.onmessage = function(msg) {
-        switch (msg.data.toUpperCase()) {
-          case ('RELOAD'):
+      var socket = null;
+      var retryTimer = 1000;
+      var retryCount = 0;
+
+      function ConnectSocket() {
+        var socket = new WebSocket(address);
+        socket.addEventListener('close', function() {
+          retryCount++;
+          setTimeout(ConnectSocket, (retryTimer * retryCount));
+        });
+
+        socket.addEventListener('open', function() {
+          if (retryCount) {
             window.location.reload();
-            break;
-          case ('COMPILING'):
-            console.log('jws -> compiling...');
-            break;
-          case ('ERROR'):
-            createErrorWindow();
-            break;
-        }
-      };
+          }
+        });
+
+        var modal = null;
+        socket.onmessage = function(msg) {
+          switch (msg.data.toUpperCase()) {
+            case ('RELOAD'):
+              window.location.reload();
+              break;
+            case ('COMPILING'):
+              console.log('jws -> compiling...');
+              break;
+            case ('ERROR'):
+              createErrorWindow();
+              break;
+          }
+        };
+      }
+
       console.log('Live reload enabled.');
 
       function createErrorWindow() {
@@ -38,10 +56,12 @@
         modal.style.left = "0px";
         modal.style.position = "fixed";
         modal.style.top = "0px";
+        modal.style.zIndex = "10000";
         document.body.appendChild(modal);
         modal.innerHTML = '<h2 style="color:red;padding:5%">Error in compilation</h2>';
 
       }
+      ConnectSocket();
     })();
   }
 </script>

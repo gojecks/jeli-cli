@@ -1,0 +1,34 @@
+!function(factory, __required) {
+    'use strict';
+    /** trigged factory **/ 
+    factory(__required);
+}(function(__required) {
+    <%=entry%>
+}, (function(modules,  global) { 
+    'use strict';
+    var installedModules = {};
+    function __required(moduleId, property) {
+        'use strict';
+        if (!installedModules.hasOwnProperty(moduleId)){
+            /** create a new ref **/ 
+            installedModules[moduleId] = { exports: true };
+            try {
+                modules[moduleId](installedModules[moduleId], installedModules[moduleId], __required, global);
+            } catch (e) {}
+        }
+
+        return property ? installedModules[moduleId][property] : installedModules[moduleId];
+    };
+
+    __required.r = function(context, name, getter) {
+        if (!context.hasOwnProperty(name)) {
+            Object.defineProperty(context, name, {
+                get: getter,
+                configurable: false,
+                enumerable: true
+            });
+        }
+    }
+
+    return __required;
+})( /** JELI DEPENDECY HUB **/ <%=modules%>, this));

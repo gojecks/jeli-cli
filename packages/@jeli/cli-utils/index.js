@@ -17,6 +17,31 @@ exports.removeSingleQuote = (str) => {
 
 /**
  * 
+ * @param {*} annot 
+ */
+exports.objectStringToAsIs = (annot, props) => {
+    if (props) {
+        this.quoteFix(props, annot, true);
+    }
+    return JSON.stringify(annot, null, 4).replace(/["]/g, '');
+};
+
+/**
+ * This function set or remove singleQuote from property value
+ * e.g ["'selector'","'exportAs'"]
+ * @param {*} props 
+ * @param {*} annot 
+ */
+exports.quoteFix = (props, annot, addQuote) => {
+    props.forEach(prop => {
+        if (annot.hasOwnProperty(prop)) {
+            annot[prop] = addQuote ? `'${annot[prop]}'` : exports.removeSingleQuote(annot[prop]);
+        }
+    });
+};
+
+/**
+ * 
  * @param {*} key 
  * @param {*} model 
  */
@@ -154,11 +179,10 @@ exports.splitAndTrim = (stack, needle) => stack.split(needle).map(key => key.tri
 exports.stringToObjectNameValueMapping = (prop, useName, skipQuoteValue, skipQuoteType) => {
     const inp = this.splitAndTrim(prop, /=/);
     const nameProp = this.splitAndTrim(inp.shift(), ":");
-    const item = {
-        name: (nameProp.shift()).replace(/[?#]/g, ''),
-    };
-
     const addQuote = (v, t) => `${(!t?"'" : "")}${v}${(!t?"'" : "")}`;
+    const item = {
+        name: (nameProp.shift()).replace(/[?#]/g, '')
+    };
 
     if (this.isContain('?', prop)) {
         item.optional = true;
