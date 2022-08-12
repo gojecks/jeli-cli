@@ -51,6 +51,7 @@
      const fileImpExt = {
          imports: [],
          exports: [],
+         asModule: false,
          declarations: {
              fns: [],
              vars: []
@@ -67,11 +68,8 @@
 
      // Read file source.
      try {
-         source = generateAstSource(
-             extractRequired(currentInstance, loader.readFile(filePath, parentPath), filePath),
-             fileImpExt
-         );
-
+         source = loader.readFile(filePath, false, false, currentInstance.buildOptions.replace);
+         source = generateAstSource(extractRequired(currentInstance, source, filePath), fileImpExt);
          if (!isExternalModule) {
              currentInstance.exports.push.apply(currentInstance.exports, fileImpExt.exports);
          }
@@ -102,7 +100,7 @@
      } catch (err) {
          loader.spinner.fail('');
          helper.console.error(`\nError while compiling ${helper.colors.yellow(filePath)} ${parentPath ? ' imported in '+helper.colors.yellow(parentPath) : '' }`);
-         helper.console.warn(`\nReasons: ${err.message}`);
+         helper.console.warn(`\nReasons: ${err.message || err}`);
          helper.console.write('\nFix errors and try again.\n');
      }
  }
@@ -151,6 +149,14 @@
                  version: resolvedDep.version,
                  name: resolvedDep.name
              };
+
+             if (resolvedDep.stylesPath) {
+                 if (!currentInstance.options.output.styles) {
+                     currentInstance.options.output.styles = [];
+                 }
+
+                 currentInstance.options.output.styles.push(resolvedDep.stylesPath);
+             }
          }
 
          importItem.specifiers.forEach(opt => {
@@ -240,14 +246,14 @@
   */
  exports.singleCompiler = async(compilerObject, changes) => {
      let moduleName = '';
-     const moduleAssignable = ['Directive', 'Element', 'Pipe'];
+     const components = ['Directive', 'Element', 'Pipe', 'jModule'];
      // check if file was previouslyy compiled 
      if (compilerObject.files.hasOwnProperty(changes.filePath)) {
          const obj = compilerObject.output.modules[changes.filePath];
          // remove all mapped annotations 
          if (obj && obj.annotations) {
              obj.annotations.forEach(annot => {
-                 if (moduleAssignable.includes(annot.type)) {
+                 if (components.includes(annot.type)) {
                      moduleName = compilerObject[annot.type][annot.fn].module;
                  }
                  delete compilerObject[annot.type][annot.fn];
@@ -261,7 +267,7 @@
      const newObject = compilerObject.output.modules[changes.filePath];
      if (newObject && newObject.annotations && moduleName && compilerObject.jModule.hasOwnProperty(moduleName)) {
          newObject.annotations.forEach(annot => {
-             if (moduleAssignable.includes(annot.type))
+             if (components.includes(annot.type))
                  compilerObject[annot.type][annot.fn].module = moduleName;
          });
      }

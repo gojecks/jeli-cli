@@ -5,7 +5,9 @@ const fs = require('fs-extra');
 
 exports.genServerOptions = options => {
     const serverOptions = {
-        root: null,
+        root: options.root,
+        port: options.port || 4110,
+        host: options.host || '127.0.0.1',
         cache: setCache(options.cache),
         timeout: options.timeout,
         showDir: options.showDir || false,
@@ -19,7 +21,9 @@ exports.genServerOptions = options => {
         debugger: options.debugger || false,
         showDotfiles: options.dotfiles,
         username: options.username || process.env.NODE_HTTP_SERVER_USERNAME,
-        password: options.password || process.env.NODE_HTTP_SERVER_PASSWORD
+        password: options.password || process.env.NODE_HTTP_SERVER_PASSWORD,
+        entryFile: options.entryFile || 'index.html',
+        enableSocket: options.enableSocket || false
     };
 
     if (options.cors) {

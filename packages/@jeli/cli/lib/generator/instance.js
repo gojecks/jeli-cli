@@ -52,7 +52,7 @@ class GeneratorInstance {
     async element(additionalConfig = {}) {
         fs.ensureDirSync(this.options.targetDir);
         this.setReplacerContent({
-            styling: this.options.projectConfig.styling,
+            styling: this.options.projectConfig.styling || 'scss',
             selector: `${this.options.projectConfig.prefix}-${this.name}`,
             viewContent: `<p> ${this.options.projectConfig.prefix}-${this.name} works!</p>`,
             scriptcontent: ''
@@ -68,7 +68,7 @@ class GeneratorInstance {
     async directive() {
         fs.ensureDirSync(this.dir);
         this.setReplacerContent({
-            selector: `${jeliUtils.kebabCase(this.name)}`
+            selector: `${jeliUtils.camelCase(this.name)}`
         });
         updateContent(this.templatePath, this.replacerData, `${this.dir}/${this.replacerData.filename}.js`);
         this.output = ['.js'];
@@ -81,6 +81,10 @@ class GeneratorInstance {
         updateContent(this.templatePath, this.replacerData, `${this.dir}/${this.replacerData.filename}.js`);
         this.addModuleParams('Service', 'service');
         this.output = ['.js'];
+    }
+
+    async pipe() {
+        return this.service();
     }
 
     async module(config = {}) {
@@ -155,35 +159,41 @@ class GeneratorInstance {
             }
 
             const targetDir = await getDir(projectData.targetDir, projectData.prefix);
-            const generators = new GeneratorInstance('element', {
-                projectConfig: projectData,
-                targetDir,
-                name: projectData.name
-            });
-
             await copyTemplate('', projectData.targetDir, [projectData.variant]);
-            // generate base Element
-            await generators.element({
-                scriptcontent: `this.appName = '${projectData.name}';`,
-                selector: projectData.name,
-                styling: projectData.style,
-                viewContent: '<h1>Welcome ${appName},</h1>\n<h2>Application works!!</h2>'
-            });
 
-            if (projectData.router) {
-                generators.setTemplatePath('router');
-                await generators.router();
+            /**
+             * only generate components if project variant is applicationn
+             */
+            if (!jeliUtils.is(projectData.variant, 'library')) {
+                const generators = new GeneratorInstance('element', {
+                    projectConfig: projectData,
+                    targetDir,
+                    name: projectData.name
+                });
+                // generate base Element
+                await generators.element({
+                    scriptcontent: `this.appName = '${projectData.name}';`,
+                    selector: projectData.name,
+                    styling: projectData.style || 'scss',
+                    viewContent: '<h1>Welcome ${appName},</h1>\n<h2>Application works!!</h2>'
+                });
+
+                if (projectData.router) {
+                    generators.setTemplatePath('router');
+                    await generators.router();
+                }
+
+                generators.setTemplatePath('module');
+                generators.module({
+                    rootelement: `,\n\trootElement: ${generators.fnName}Element`
+                });
+                /**
+                 * create the entry files
+                 */
+                generators.setTemplatePath('main');
+                await generators.main();
             }
 
-            generators.setTemplatePath('module');
-            generators.module({
-                rootelement: `,\n\trootElement: ${generators.fnName}Element`
-            });
-            /**
-             * create the entry files
-             */
-            generators.setTemplatePath('main');
-            await generators.main();
             await updateJeliSchema(projectData, path.resolve(projectData.targetDir, '..'));
             await replaceVariablesInTemplate(projectData);
         } catch (e) {

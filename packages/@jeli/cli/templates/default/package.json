@@ -12,12 +12,12 @@
     "author": "[AUTHOR]",
     "license": "[LICENSE]",
     "dependencies": {
-        "@jeli/core": "~0.0.1",
-        "@jeli/common": "~0.0.1",
-        "@jeli/form": "~0.0.1"
+        "@jeli/core": "latest",
+        "@jeli/common": "latest",
+        "@jeli/form": "latest"
     },
     "devDependencies": {
-        "@jeli/cli": "0.0.1",
+        "@jeli/cli": "latest",
         "jest": "^25.4.0",
         "eslint": "^6.8.0",
         "eslint-config-standard": "^14.1.0",

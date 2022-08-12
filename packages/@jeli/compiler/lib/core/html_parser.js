@@ -23,6 +23,7 @@
      const templatesMapHolder = {};
      const templateOutletHolder = {};
      const resolvedTemplates = [];
+     const templateOptionsMapper = [];
      const providers = {
          ViewParser: "@jeli/core"
      };
@@ -76,6 +77,14 @@
          }
 
          /**
+          * outlet compiler
+          */
+         //  if (['j-outlet', 'outlet'].includes(item.name)) {
+         //      newItem.type = 'outlet';
+         //      return newItem;
+         //  }
+
+         /**
           * throw Error when Element calls itself
           */
          if (newItem.isc) {
@@ -107,6 +116,7 @@
       * @param {*} newElement 
       * @param {*} elementName 
       * @param {*} parent 
+      * @param {*} isCircularRef
       * @returns 
       */
      function checkAndBuildTemplateElement(newElement, elementName, parent) {
@@ -116,7 +126,7 @@
              case ('j-place'):
                  return jPlaceCompiler(newElement, parent);
              case ('j-fragment'):
-                 templateLinker(newElement, (newElement.attr && newElement.attr['template']));
+                 return jFragmentParser(newElement, elementName);
                  break;
          }
 
@@ -155,34 +165,38 @@
          }
      }
 
-     /**
-      * 
-      * @param {*} item 
-      * @param {*} parent 
-      * @param {*} parentIdx 
-      */
-     function compileChildren(item, parent) {
-         if (item.children && item.children.length) {
-             const formControl = parent.props && parent.props['formControl'];
-             if (formControl) {
-                 // attachFormControl(item.children, formControl);
+     function checkTemplateCircularRef(isTemplate, refId, child) {
+         if (isTemplate && refId) {
+             if (child.name && child.attribs && child.attribs.hasOwnProperty('template') && child.attribs.template === refId) {
+                 child.isCircularRef = true;
              }
+
+             if (child.children && child.children.length) {
+                 child.children.forEach(cchild => checkTemplateCircularRef(true, refId, cchild));
+             }
+         }
+     }
+
+     function compileChildren(item, compiledItem) {
+         if (item.children && item.children.length) {
+             compiledItem.children = [];
              /**
-              * build FormControl
+              * check for circular template references
               */
-             parent.children = [];
+             const isTemplate = (item.name === 'j-template');
              item.children
                  .filter(child => (child.name || child.data && child.data.trim()))
                  .forEach((child, idx) => {
-                     var content = contentParser(child, idx, parent);
+                     // checkTemplateCircularRef(isTemplate, compiledItem.refId, child);
+                     var content = contentParser(child, idx, compiledItem);
                      if (content) {
-                         if (parent.isc) {
-                             parent.templates = parent.templates || {
+                         if (compiledItem.isc) {
+                             compiledItem.templates = compiledItem.templates || {
                                  place: []
                              };
-                             parent.templates.place.push(content);
+                             compiledItem.templates.place.push(content);
                          } else {
-                             parent.children.push(content);
+                             compiledItem.children.push(content);
                          }
                      }
                  });
@@ -215,10 +229,7 @@
          if (item.props) {
              for (var templateId in item.props) {
                  if (typeof item.props[templateId] !== 'object' && !item.templates[templateId]) {
-                     item.templates[templateId] = ({
-                         refId: item.props[templateId]
-                     });
-                     templateLinker(item.templates[templateId], item.props[templateId]);
+                     item.templates[templateId] = `%tmpl_${item.props[templateId]}%`;
                  }
              }
          }
@@ -245,8 +256,7 @@
          /**
           * bind to templateFragments
           */
-         templateLinker(element, (element.attr && element.attr['template']));
-         item.templates[definition.dirName] = element;
+         item.templates[definition.dirName] = jFragmentParser(element);
          _attachProviders(definition.registeredDir, item);
          return item;
      }
@@ -257,6 +267,16 @@
       * @param {*} parent 
       */
      function templateCompiler(element, parent) {
+         // set element to singleNode if single child 
+         const len = (element && element.children && element.children.length);
+         if (len === 1) {
+             var refId = element.refId;
+             element = element.children[0];
+             element.refId = refId;
+         } else if (!len) {
+             return null;
+         }
+
          if (parent && parent.name && parent.isc) {
              /**
               * attach template
@@ -267,11 +287,7 @@
              parent.templates.place.push(element);
          } else if (templateOutletHolder[element.refId]) {
              templateOutletHolder[element.refId].forEach(outletElement => {
-                 const index = outletElement.index;
-                 for (const prop in element) {
-                     outletElement[prop] = element[prop];
-                 }
-                 outletElement.index = index;
+                 outletElement.template = `%tmpl_${element.refId}%`
                  if (outletElement.context) {
                      generateOutletContext(outletElement);
                  }
@@ -279,37 +295,11 @@
 
              delete templateOutletHolder[element.refId];
              templatesMapHolder[element.refId] = element;
-             pushToResolvedTemplates(element.refId);
          } else {
              templatesMapHolder[element.refId] = element;
          }
 
          return null;
-     }
-
-
-     /**
-      * 
-      * @param {*} element 
-      * @returns 
-      */
-     function templateLinker(element, templateId) {
-         if (templateId) {
-             if (element.children) {
-                 errorLogs.push(`template="${templateId}" linking not allowed in <${element.name}> with content.`);
-                 return;
-             }
-
-             delete element.attr;
-             if (templatesMapHolder[templateId]) {
-                 Object.assign(element, helper.cloneObject(templatesMapHolder[templateId]));
-                 pushToResolvedTemplates(templateId);
-             } else {
-                 if (!templateOutletHolder[templateId])
-                     templateOutletHolder[templateId] = [];
-                 templateOutletHolder[templateId].push(element);
-             }
-         }
      }
 
      /**
@@ -347,6 +337,45 @@
 
              // remove the element
              delete element.attr;
+         }
+
+         return element;
+     }
+
+     /**
+      * 
+      * @param {*} element 
+      * @returns 
+      */
+     function jFragmentParser(element) {
+         let templateId = (element.attr && element.attr['template']) || (element.attr$ && element.attr$['template']);
+         if (element.children && element.children.length && templateId) {
+             templateId = helper.typeOf(templateId, 'object') ? templateId.prop.join('.') : templateId;
+             errorLogs.push(`<j-fragment template="${templateId}"/> does not support child elements and template linking.`);
+             return;
+         }
+
+         if (templateId) {
+             // it's possible to have a conditional template
+             // we check for templateBinding and static reference
+             if (element.attr) {
+                 let propsMapper = '|';
+                 if (element.props && element.providers) {
+                     propsMapper += templateOptionsMapper.length;
+                     templateOptionsMapper.push({
+                         props: element.props,
+                         providers: element.providers
+                     });
+                 }
+                 return `%tmpl_${templateId}${propsMapper}%`;
+             } else if (element.attr$) { // templateBinding found
+                 return {
+                     type: 'outlet',
+                     $templateId: templateId,
+                     context: element.context,
+                     _GT: `%tmpl_GT%`
+                 }
+             }
          }
 
          return element;
@@ -899,6 +928,7 @@
      return {
          errorLogs,
          parsedContent,
+         templateOptionsMapper,
          templatesMapHolder,
          providers
      };

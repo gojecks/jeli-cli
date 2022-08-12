@@ -1,23 +1,25 @@
 const helper = require('@jeli/cli-utils');
 const cached = {};
 
-exports.attachViewSelectorProviders = (providers, compilerObject, imports) => {
+
+exports.attachViewSelectorProviders = (providers, compilerObject, imports, isLib) => {
     return Object.keys(providers).map(providerName => {
-        return attachToImportMapping(providers[providerName], providerName, compilerObject, imports);
+        return attachToImportMapping(providers[providerName], providerName, compilerObject, imports, isLib);
     });
 }
 
 /**
  * Attach the providers to the importMapping
  */
-function attachToImportMapping(moduleName, providerName, compilerObject, imports) {
-    let outputName = moduleName;
+function attachToImportMapping(moduleName, providerName, compilerObject, imports, isLib) {
+    let outputName = isLib ? `exports` : moduleName;
     if (compilerObject.jModule.hasOwnProperty(moduleName)) {
         Object.keys(compilerObject.files)
             .forEach(path => {
                 const moduleObj = compilerObject.files[path];
-                if (moduleObj.exports.some(item => helper.is(item.exported, moduleName))) {
-                    if (!moduleObj.exports.some(item => helper.is(item.exported, providerName))) {
+                const exportedItem = moduleObj.exports.map(item => item.exported);
+                if (exportedItem.includes(moduleName)) {
+                    if (!exportedItem.includes(providerName)) {
                         moduleObj.exports.push({
                             local: providerName,
                             exported: providerName
@@ -36,7 +38,6 @@ function attachToImportMapping(moduleName, providerName, compilerObject, imports
                     }
                 }
             });
-
     } else {
         let name = "";
         if (compilerObject.globalImports.hasOwnProperty(moduleName)) {

@@ -52,31 +52,37 @@ function _query(queryElements, element) {
  * @param {*} queries 
  * @param {*} selector 
  * @param {*} element 
- * @param {*} moduleList 
+ * @param {*} moduleName 
  */
-function _CoreSelector(registeredElement, queries, selector, element, moduleList) {
+function _CoreSelector(registeredElement, queries, selector, element, moduleName) {
     const _runQuery = name => {
         const dir = registeredElement[name];
         /**
          * check first if module matches
          */
-        if (!moduleList.includes(dir.module)) {
-            return false;
+        if (dir.module !== moduleName) return false;
+        // check for array listed selectors
+        if (Array.isArray(dir.selector)) {
+            const selectorName = dir.selector.find(query => queries.hasOwnProperty(query));
+            if (selectorName && element) {
+                return _query(queries[selectorName], element);
+            }
+
+            return dir.selector.includes(selector)
         }
 
         if (queries.hasOwnProperty(dir.selector) && element) {
             return _query(queries[dir.selector], element);
         }
 
-        if (dir.selector === selector) {
-            return true;
-        }
+        return (dir.selector === selector);
     };
 
     return Object.keys(registeredElement).filter(_runQuery).map(name => {
+        const dir = registeredElement[name];
         return {
-            fn: name,
-            obj: registeredElement[name]
+            fn: dir.link ? dir.useExisting : name,
+            obj: dir.link || dir
         };
     });
 };
@@ -103,8 +109,7 @@ exports.CoreQuerySelector = (compilerObject, type, selector, componentName, elem
      */
     function search(meta, moduleName) {
         if (!meta || !meta.jModule[moduleName]) return;
-        const moduleList = [moduleName].concat(meta.jModule[moduleName].requiredModules || []);
-        found.push.apply(found, _CoreSelector(meta[type], meta.queries, selector, element, moduleList));
+        found.push.apply(found, _CoreSelector(meta[type], meta.queries, selector, element, moduleName));
     }
 
     /**
@@ -118,6 +123,7 @@ exports.CoreQuerySelector = (compilerObject, type, selector, componentName, elem
 
     function findInRequiredModules(requiredModules) {
         for (const moduleName of requiredModules) {
+            if (type === 'Element' && found.length) return;
             /**
              * check if module is registered to the current compiler
              */
@@ -126,6 +132,7 @@ exports.CoreQuerySelector = (compilerObject, type, selector, componentName, elem
             }
 
             if (compilerObject.jModule.hasOwnProperty(moduleName)) {
+                search(compilerObject, moduleName);
                 const childModule = compilerObject.jModule[moduleName];
                 if (childModule.requiredModules && childModule.requiredModules.length)
                     findInRequiredModules(compilerObject.jModule[moduleName].requiredModules);

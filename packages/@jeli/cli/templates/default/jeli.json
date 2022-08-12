@@ -3,6 +3,8 @@
         "packageManager": "[PACKAGEMANAGER]"
     },
     "projects": {},
-    "resolve": {},
+    "resolve": {
+        "alias": {}
+    },
     "default": "[NAME]"
 }

@@ -20,7 +20,7 @@ async function ComponentGenerator(componentType, pathName, options) {
     if (type === 'c') {
         if (!options.components) {
             jeliUtils.console.error(`Type ${jeliUtils.colors.yellow(componentType)} requires list of components to be generated.\n`)
-            jeliUtils.abort("");
+            jeliUtils.abort('');
         } else if (options.components.split('').some(ctype => !supportedTypes.hasOwnProperty(ctype))) {
             throwErrorForInvalidComponentTypes(options.components);
         }
@@ -42,7 +42,7 @@ async function ComponentGenerator(componentType, pathName, options) {
     }
 
     const projectConfig = jeliJson.projects[options.project || jeliJson.default];
-    const devFolder = jeliUtils.is(projectConfig.type, 'application') ? projectConfig.prefix : '.';
+    const devFolder = projectConfig.prefix || '.';
     const targetDir = path.resolve(cwd, projectConfig.sourceRoot, devFolder, parsePathName(pathName));
     /**
      * initializer

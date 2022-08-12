@@ -41,18 +41,26 @@ exports.joinFilePath = (...args) => path.join.apply(path, args);
 /**
  * 
  * @param {*} filePath 
- * @param {*} ignoreCheck
+ * @param {*} ignoreCheck 
+ * @param {*} saveToCache 
+ * @param {*} buildOptionReplace 
+ * @returns 
  */
-exports.readFile = (filePath, ignoreCheck = false, saveToCache = false) => {
+exports.readFile = (filePath, ignoreCheck = false, saveToCache = false, buildOptionReplacer) => {
     if (!ignoreCheck && !fs.existsSync(filePath)) {
         throw new Error(`File "${helper.colors.yellow(filePath)}" does not exists`);
     }
 
+    /**
+     * check if filePath is part of cache
+     * then return cache
+     */
     if (_fileCache_.has(filePath)) {
         return _fileCache_.get(filePath);
     }
 
-    var contents = fs.readFileSync(filePath, 'utf8');
+    const rFilePath = ((buildOptionReplacer && buildOptionReplacer[filePath]) ? buildOptionReplacer[filePath] : filePath);
+    const contents = fs.readFileSync(rFilePath, 'utf8');
     if (saveToCache) _fileCache_.set(filePath, contents);
 
     return contents;
@@ -124,6 +132,7 @@ exports.resolveDependency = (dep, parentPath, resolveOptions) => {
              */
             return {
                 source: path.join(depPath, pkgJson.module || pkgJson.main),
+                stylesPath: pkgJson.stylesPath ? path.join(depPath, pkgJson.stylesPath) : null,
                 metadata: path.join(depPath, pkgJson.metadata || 'metadata.json'),
                 isModule: !!pkgJson.module,
                 version: pkgJson.version,

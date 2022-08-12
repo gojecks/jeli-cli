@@ -57,7 +57,6 @@ async function CompilerObject(options, buildOptions, resolvers) {
      */
     options.resolve = options.resolve || {};
     options.resolve.paths = (options.resolve.paths || ['./node_modules']);
-
     if (resolvers) {
         if (resolvers.paths) {
             options.resolve.paths.push.apply(options.resolve.paths, resolvers.paths);

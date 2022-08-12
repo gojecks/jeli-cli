@@ -19,7 +19,7 @@ function HttpServer(options) {
         this.server.setTimeout(options.timeout);
     }
 
-    if (options.watch) {
+    if (options.enableSocket) {
         this.server.addListener('upgrade', (request, socket, body) => {
             let ws = new WebSocket(request, socket, body);
             ws.on('close', function(event) {

@@ -22,10 +22,10 @@ async function build() {
     const jeliCompiler = require('../lib/index');
     if (args.all) {
         for (const name in config.projects) {
-            await jeliCompiler.builder(config, name, packageJSONParams);
+            await jeliCompiler.builder(config.projects[name], packageJSONParams, config.resolve);
         }
     } else {
-        await jeliCompiler.builder(config, args.entry || config.default, packageJSONParams);
+        await jeliCompiler.builder(config.projects[args.entry || config.default], packageJSONParams, config.resolve);
     }
 };
 

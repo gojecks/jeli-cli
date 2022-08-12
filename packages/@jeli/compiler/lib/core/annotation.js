@@ -153,7 +153,29 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
          * validate selectors
          */
         function _validateSelectors() {
+            var getElement = name => compilerObject.Directive[name] || compilerObject.Element[name];
             moduleObj.selectors.forEach(elementFn => {
+                if (helper.typeOf(elementFn, 'object')) {
+                    if (elementFn.useExisting && elementFn.selector) {
+                        const element = getElement(elementFn.useExisting);
+                        if (!element) {
+                            return compilerError.push(`${elementFn.useExisting} is registered in ${fnName} module but implementation does not exists.`);
+                        }
+
+                        // create a new reactive class from build
+                        const newClassName = helper.pascalCase(elementFn.selector);
+                        elementFn.selector = helper.removeDoubleQuote(elementFn.selector);
+                        const newInstance = Object.assign(elementFn, {
+                            module: fnName,
+                            link: element
+                        });
+                        compilerObject[elementFn.selector.includes('-') ? 'Element' : 'Directive'][newClassName] = newInstance;
+                        return;
+                    }
+
+                    return compilerError.push(`Invalid definition ${JSON.stringify(elementFn)}, missing property "useExisiting|selector"`);
+                }
+
                 const element = compilerObject.Directive[elementFn] || compilerObject.Element[elementFn];
                 if (!element) {
                     compilerError.push(`${elementFn} is registered in ${fnName} module but implementation does not exists.`);

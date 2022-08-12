@@ -15,6 +15,10 @@ exports.removeSingleQuote = (str) => {
     return String(str).replace(/[']/g, "");
 }
 
+exports.removeDoubleQuote = str => {
+    return String(str).replace(/["]/g, '');
+}
+
 /**
  * 
  * @param {*} annot 
@@ -23,7 +27,7 @@ exports.objectStringToAsIs = (annot, props) => {
     if (props) {
         this.quoteFix(props, annot, true);
     }
-    return JSON.stringify(annot, null, 4).replace(/["]/g, '');
+    return exports.removeDoubleQuote(JSON.stringify(annot, null, 4));
 };
 
 /**
@@ -267,7 +271,7 @@ exports.stringifyContent = (content) => {
 
 exports.abort = _ => {
     console.log(colors.red(_ || '\nPlease fix errors.'));
-    process.exit(1);
+    process.exit();
 };
 
 // commander passes the Command object itself as options,
@@ -284,6 +288,13 @@ exports.cleanArgs = (cmd) => {
     })
     return args
 };
+
+exports.extractArgs = (keys, values) => {
+    return keys.reduce((accum, key) => {
+        accum[key] = values[key] || null;
+        return accum;
+    }, {});
+}
 
 exports.kebabCase = str => {
     return str.split('').map((char, idx) => {

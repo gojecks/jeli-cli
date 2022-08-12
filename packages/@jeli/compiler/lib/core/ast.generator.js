@@ -121,7 +121,8 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                 } else if (expression.source) {
                     currentProcess.imports.push({
                         specifiers: [],
-                        source: expression.source.value
+                        source: expression.source.value,
+                        asModule: expression.source.value.includes('module')
                     });
                 }
                 break;

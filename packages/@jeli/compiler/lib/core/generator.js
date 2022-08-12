@@ -1,9 +1,10 @@
 const helper = require('@jeli/cli-utils');
 const htmlParser = require('./html_parser');
 const loader = require('./loader');
-const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges } = require('./output');
+const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges, copyAndUpdateAssetsFile } = require('./output');
 const { attachViewSelectorProviders } = require('./view.provider');
 const annotationProps = ['name', 'selector', 'exportAs', 'module'];
+const componentFacade = require('./components.facade');
 
 /**
  * 
@@ -12,8 +13,9 @@ const annotationProps = ['name', 'selector', 'exportAs', 'module'];
  * @param {*} fileChanged 
  */
 async function CoreGenerator(compilerObject, entry, changes) {
+    const isLib = helper.is('library', compilerObject.options.type);
     let scriptBody = '';
-    const compilerResolver = require('./components.facade')(compilerObject);
+    const compilerResolver = componentFacade(compilerObject);
     /**
      * 
      * @param {*} definition 
@@ -33,7 +35,8 @@ async function CoreGenerator(compilerObject, entry, changes) {
             case ('element'):
                 const obj = compilerObject[definition.type][definition.fn];
                 if (!obj.module) {
-                    helper.abort(`${helper.colors.yellow(definition.fn)} is not registered to any Module`);
+                    helper.console.warn(`${helper.colors.yellow(definition.fn)} is not registered to any Module`);
+                    return;
                 }
 
                 let template = obj.template;
@@ -50,9 +53,6 @@ async function CoreGenerator(compilerObject, entry, changes) {
                     styleUrl = loader.joinFilePath(filePath, '..', styleUrl);
                     compilerObject.output.styles[styleUrl] = filePath;
                 }
-
-
-
 
                 /**
                  * remove unused ctors
@@ -72,7 +72,7 @@ async function CoreGenerator(compilerObject, entry, changes) {
                             helper.console.header(`TemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
                             parsedHtml.errorLogs.forEach(helper.console.error);
                         }
-                        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ (function(_viewParser){ return function(parentRef){  return _viewParser.compile(${attachViewProviders(filePath, parsedHtml)}, parentRef);}})(new core["ViewParser"])/** template loader **/`);
+                        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ ${generateView(filePath, parsedHtml)}/** template loader **/`);
                     }
 
                     // style parser
@@ -97,7 +97,7 @@ async function CoreGenerator(compilerObject, entry, changes) {
                 }
 
                 if (compilerObject.jModule[definition.fn].requiredModules) {
-                    definition.annotations.push(`!function(){/** bootstrap module**/${helper.objectStringToAsIs(compilerObject.jModule[definition.fn].requiredModules)}.forEach(function(_module){ _module()});\n}();`);
+                    definition.annotations.push(`${definition.fn}.fac = function(){/** bootstrap module**/${helper.objectStringToAsIs(compilerObject.jModule[definition.fn].requiredModules)}.forEach(function(m){ if(m.fac){ m.fac()} m()});\n};`);
                 }
                 break;
         }
@@ -105,7 +105,61 @@ async function CoreGenerator(compilerObject, entry, changes) {
         return generateScript(definition);
     }
 
+    /**
+     * 
+     * @param {*} t 
+     * @param {*} prop 
+     * @returns 
+     */
+    function tmplToScript(t, viewRef, childVar) {
+        var s = ``;
+        if (t) {
+            var templates = null;
+            var children = null;
+            if (t.templates) {
+                templates = constructTemplate(t.templates);
+            }
 
+            if (t.children) {
+                children = `function(parentRef){${constructContents(t.children, 'parentRef')}.forEach(function(child,i){if(child){parentRef.children.add(child, i); parentRef.nativeElement.appendChild(child.nativeElement || child.nativeNode); } });}`;
+            }
+
+            if (t.type === 'text') {
+                s += `core["ViewParser"].builder.text(${JSON.stringify(t.ast || null)}, ${viewRef})`;
+            } else {
+                const definitions = ['name', 'text', 'index', 'vc', 'isc', 'attr', 'props', 'providers'].reduce((accum, key) => { if (t.hasOwnProperty(key)) { accum[key] = t[key]; } return accum; }, {});
+                s += `core["ViewParser"].builder.${t.type}(${JSON.stringify(definitions)}, ${viewRef}, ${children}, ${templates})`;
+            }
+        }
+
+        return `${s}`;
+    }
+
+    /**
+     * 
+     * @param {*} templates 
+     * @returns 
+     */
+    function constructTemplate(templates) {
+        var ret = [];
+        for (const tprop in templates) {
+            const tid = `${tprop}_tmpl`;
+            ret.push(`${tprop}: function(){ return ${tmplToScript(templates[tprop], tid)}}`);
+        }
+        return `{${ret.join(',')}}`;
+    }
+
+    /**
+     * 
+     * @param {*} templates 
+     */
+    function constructContents(templates, viewRef) {
+        const contents = templates.map((child, idx) => {
+            return tmplToScript(child, viewRef, `${viewRef}_child_${idx}`);
+        });
+
+        return `[${contents.join(',')}]`;
+    }
 
 
     /**
@@ -113,13 +167,33 @@ async function CoreGenerator(compilerObject, entry, changes) {
      * @param {*} processFilePath 
      * @param {*} parsedHtml 
      */
-    function attachViewProviders(processFilePath, parsedHtml) {
+    function generateView(processFilePath, parsedHtml) {
         const imports = compilerObject.files[processFilePath].imports;
-        let output = JSON.stringify(parsedHtml.parsedContent);
-        attachViewSelectorProviders(parsedHtml.providers, compilerObject, imports).forEach(replaceProviders);
+        const templateKeys = Object.keys(parsedHtml.templatesMapHolder);
+        let output = '';
+        if (compilerObject.buildOptions.AOT) {
+            output = `var $tmpl=${constructTemplate(parsedHtml.templatesMapHolder)}; ${constructContents(parsedHtml.parsedContent, 'viewRef')};`;
+        } else {
+            output = `function(compiler){ 'use strict'; return function(viewRef){  var $tmpl=${replaceTemplateMappers(parsedHtml.templatesMapHolder, true)},_GT = function(templateId){ return $tmpl[templateId];}; return compiler.compile(${replaceTemplateMappers(parsedHtml.parsedContent)}, viewRef);}}(new core["ViewParser"].JSONCompiler)`;
+        }
+
+        attachViewSelectorProviders(parsedHtml.providers, compilerObject, imports, isLib).forEach(replaceProviders);
 
         function replaceProviders(viewProvider) {
             output = output.replace(new RegExp(`"%${viewProvider.providerName}%"`, 'g'), `${viewProvider.outputName}["${viewProvider.providerName}"]`);
+        }
+
+        function replaceTemplateMappers(template, attachWrapper) {
+            template = JSON.stringify(template);
+            if (templateKeys.length) {
+                template = template.replace(new RegExp(`"%tmpl_(.*?)%"`, 'g'), (_, key) => {
+                    if (key === 'GT') return `${attachWrapper ? 'function(tid){ return _GT(tid);}':'_GT'}`;
+                    const templateKey = key.split('|');
+                    const tmpscript = `${templateKey[1] ? 'Object.assign('+JSON.stringify(parsedHtml.templateOptionsMapper[templateKey[1]])+', $tmpl.'+templateKey[0]+')' : '_GT("'+templateKey[0]+'")' }`;
+                    return `${attachWrapper ? 'function(){ return '+tmpscript+';}':tmpscript}`;
+                });
+            }
+            return template;
         }
 
         return output;
@@ -183,8 +257,6 @@ async function CoreGenerator(compilerObject, entry, changes) {
 
     }
 
-
-    const isLib = helper.is('library', compilerObject.options.type);
     scriptBody = generateScriptBody();
     /**
      * save files
@@ -196,7 +268,7 @@ async function CoreGenerator(compilerObject, entry, changes) {
     }
 }
 
-module.exports = async function(compilerObject, changes) {
+exports.generateApp = async function(compilerObject, changes) {
     for (const name in compilerObject) {
         if (changes && changes.isStyles) {
             styleChanges(compilerObject[name], changes);
@@ -205,3 +277,5 @@ module.exports = async function(compilerObject, changes) {
         }
     }
 };
+
+exports.updatesAppAssets = copyAndUpdateAssetsFile;

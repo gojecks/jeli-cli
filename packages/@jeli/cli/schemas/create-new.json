@@ -1,0 +1,60 @@
+[{
+        "promptId": "directoryExist",
+        "cond": [{
+            "dirExist": true
+        }],
+        "validate": {
+            "args": ["$", "targetDir"],
+            "fn": "validateFolder"
+        }
+    },
+    {
+        "promptId": "projectType"
+    },
+    {
+        "promptId": "main",
+        "cond": [{
+            "jeliWorkSpace": false
+        }, {
+            "dirOption": 2,
+            "projectExists": true
+        }]
+    },
+    {
+        "promptId": "sourceRoot",
+        "cond": [{
+            "jeliWorkSpace": false
+        }, {
+            "dirOption": 2,
+            "projectExists": true
+        }],
+        "extend": [{
+            "props": "default",
+            "fn": "concat",
+            "args": ["name", "-src"]
+        }]
+    },
+    {
+        "cond": [{
+            "variant": "application"
+        }],
+        "promptId": "application"
+    },
+    {
+        "promptId": "prefix"
+    },
+    {
+        "cond": [{
+            "jeliWorkSpace": false
+        }, {
+            "dirOption": 2,
+            "projectExists": true
+        }],
+        "question": "packageManager",
+        "extend": [{
+            "props": "choices",
+            "fn": "keys",
+            "args": "availablePkgMgr"
+        }]
+    }
+]

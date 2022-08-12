@@ -1,7 +1,6 @@
 const jeliUtils = require('@jeli/cli-utils');
 const path = require('path');
 const fs = require('fs');
-
 const changeCWD = folder => {
     if (folder) {
         process.chdir(folder);
@@ -12,8 +11,8 @@ const changeCWD = folder => {
  * 
  * @param {*} folder 
  */
-const getSchema = (folder) => {
-    const jsonSchemaPath = path.join(process.cwd(), folder || '', './jeli.json');
+const getSchema = () => {
+    const jsonSchemaPath = path.join(process.cwd(), './jeli.json');
     if (!fs.existsSync(jsonSchemaPath)) {
         jeliUtils.abort(`\nUnable to determine schema for this project, are you sure this is a jeli project?\n run "${jeliUtils.colors.yellow('jeli create PROJECT_NAME')}" to create a new project.`);
     }
@@ -29,45 +28,80 @@ const getPackageJson = folder => {
  * 
  * @param {*} entry 
  * @param {*} options 
- * @param {*} pushEvent 
+ * @param {*} startDevServer 
  */
-exports.build = async function build(entry, options, pushEvent) {
-    const jeliSchemaJSON = getSchema(options.cwd);
-    changeCWD(options.cwd);
+exports.build = async function build(entry, options, startDevServer) {
+    const jeliSchemaJSON = getSchema();
+    const jeliCompiler = require('@jeli/compiler');
     entry = entry || jeliSchemaJSON.default;
     if (!jeliSchemaJSON.projects.hasOwnProperty(entry)) {
-        jeliUtils.abort(`\n unable to find configurations for ${entry} in schema`);
+        jeliUtils.abort(`\n unable to find project ${entry} in schema`);
     }
 
-    const jeliCompiler = require('@jeli/compiler');
-    // overwrite dist folder with options dist
-    jeliSchemaJSON.projects[entry].output.folder = options.dist;
-    await jeliCompiler.builder(jeliSchemaJSON, entry, options);
-    /**
-     * start watcher
-     */
-    if (options.watch) {
-        const watch = require('./lib/build/watch');
-        const watchFolders = [jeliSchemaJSON.projects[entry].sourceRoot];
-        let pending = false;
-        await watch(watchFolders, async(path, event) => {
-            if (!pending) {
-                pushEvent('compiling');
-                pending = true;
-                try {
-                    await jeliCompiler.buildByFileChanges(path, event);
-                    pushEvent('reload');
-                    jeliUtils.console.success(jeliUtils.colors.green('compilation successful.'));
-                } catch (e) {
-                    console.log(e);
-                    jeliUtils.console.error('compilation error.');
-                    pushEvent('error');
-                } finally {
-                    pending = false;
-                }
-            }
-        });
+    // set entry projectSchema
+    const projectSchema = jeliSchemaJSON.projects[entry];
+    if (options.configuration && projectSchema.configurations) {
+        if (projectSchema.configurations && !projectSchema.configurations[options.configuration]) {
+            jeliUtils.abort(`\n unable to find configurations for ${options.configuration} in ${entry} schema`);
+        }
+
+        jeliUtils.console.write(`using ${options.configuration} configuration`);
+        // passed through commnand line
+        const configuration = projectSchema.configurations[options.configuration];
+        if (configuration.serverOptions) {
+            Object.assign(options.serverOptions, configuration.serverOptions);
+        } else if (configuration.buildOptions) {
+            Object.assign(options.buildOptions, configuration.buildOptions);
+        }
     }
+
+    // extend project schema with configuration options
+    for (var prop in options.buildOptions) {
+        if (projectSchema.hasOwnProperty(prop) && typeof projectSchema[prop] === 'object') {
+            Object.assign(projectSchema[prop], options.buildOptions[prop]);
+        } else {
+            projectSchema[prop] = options.buildOptions[prop];
+        }
+    }
+
+    /**
+     * change working directory
+     */
+    changeCWD(options.buildOptions.cwd);
+
+    /**
+     * start devServer and watcher
+     */
+    if (options.serverOptions) {
+        const server = startDevServer();
+        if (options.buildOptions.watch) {
+            const watch = require('./lib/build/watch');
+            const watchFolders = [projectSchema.sourceRoot];
+            let pending = false;
+            await watch(watchFolders, async(path, event) => {
+                if (!pending) {
+                    server.pushEvent('compiling');
+                    pending = true;
+                    try {
+                        await jeliCompiler.buildByFileChanges(path, event);
+                        server.pushEvent('reload');
+                        jeliUtils.console.success(jeliUtils.colors.green('compilation successful.'));
+                    } catch (e) {
+                        console.log(e);
+                        jeliUtils.console.error('compilation error.');
+                        server.pushEvent('error');
+                    } finally {
+                        pending = false;
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * compile project
+     */
+    await jeliCompiler.builder(projectSchema, options.buildOptions, jeliSchemaJSON.resolve);
 }
 
 /**
@@ -81,74 +115,74 @@ exports.serve = async function(entry, options) {
     const httpServer = require('./lib/server/create');
     const opener = require('opener');
     const ifaces = os.networkInterfaces();
-    const serverOptions = genServerOptions(options);
-    const port = options.port || parseInt(process.env.PORT, 10) || 4110;
-    const host = options.host || '127.0.0.1';
     /**
-     * change the current working directory
-     * sample usage: test
+     * port and host could be overridden by configurations
+     * @returns 
      */
-    changeCWD(options.cwd);
-    serverOptions.root = `./.serve/${entry || 'main'}/`;
-    serverOptions.entryFile = 'index.html';
-    serverOptions.watch = true;
-    /**
-     * create server
-     */
-    var server = httpServer(serverOptions);
-    server.listen(port, host, function() {
-        var canonicalHost = jeliUtils.is(host, '127.0.0.1') ? 'localhost' : host,
-            protocol = serverOptions.ssl ? 'https://' : 'http://';
-
-        jeliUtils.console.setInitial([jeliUtils.colors.yellow('Starting up local server, serving '),
-            jeliUtils.colors.cyan(serverOptions.root),
-            serverOptions.ssl ? (jeliUtils.colors.yellow(' through') + jeliUtils.colors.cyan(' https')) : '',
-            jeliUtils.colors.yellow('\nAvailable on:')
-        ].join(''));
-
-        if (jeliUtils.is(host, '0.0.0.0')) {
-            Object.keys(ifaces).forEach(function(dev) {
-                ifaces[dev].forEach(function(details) {
-                    if (details.family === 'IPv4') {
-                        jeliUtils.console.setInitial(('  ' + protocol + details.address + ':' + jeliUtils.colors.green(port.toString())));
-                    }
-                });
-            });
-        } else {
-            jeliUtils.console.setInitial(('  ' + protocol + canonicalHost + ':' + jeliUtils.colors.green(port.toString())));
-        }
-
-        if (typeof serverOptions.proxy === 'string') {
-            jeliUtils.console.setInitial('Unhandled requests will be served from: ' + proxy);
-        }
-
-        jeliUtils.console.clear('Hit CTRL-C to stop the server');
-        if (options.path) {
-            var openUrl = protocol + canonicalHost + ':' + port;
-            if (jeliUtils.typeOf(options.path, 'string')) {
-                openUrl += options.path[0] === '/' ? options.path : '/' + options.path;
-            }
-            jeliUtils.console.write('open: ' + openUrl);
-            opener(openUrl, { app: options.browser });
-        }
-
+    function startServer() {
+        const serverOptions = genServerOptions(options.serverOptions);
         /**
-         * trigger the build instance
+         * create server
          */
-        exports.build(entry, {
-            watch: true,
-            dist: serverOptions.root
-        }, event => server.pushEvent(event));
-    });
+        const server = httpServer(serverOptions);
+        server.listen(serverOptions.port, serverOptions.host, function() {
+            var canonicalHost = jeliUtils.is(serverOptions.host, '127.0.0.1') ? 'localhost' : serverOptions.host,
+                protocol = serverOptions.ssl ? 'https://' : 'http://';
 
-    // attach listener
-    attachListeners('Local server stopped, please reconnect.', () => {
-        server.close();
-        cleanup(serverOptions);
-    });
+            jeliUtils.console.setInitial([jeliUtils.colors.yellow('Starting up local server, serving '),
+                jeliUtils.colors.cyan(serverOptions.root),
+                serverOptions.ssl ? (jeliUtils.colors.yellow(' through') + jeliUtils.colors.cyan(' https')) : '',
+                jeliUtils.colors.yellow('\nAvailable on:')
+            ].join(''));
+
+            if (jeliUtils.is(serverOptions.host, '0.0.0.0')) {
+                Object.keys(ifaces).forEach(function(dev) {
+                    ifaces[dev].forEach(function(details) {
+                        if (details.family === 'IPv4') {
+                            jeliUtils.console.setInitial(('  ' + protocol + details.address + ':' + jeliUtils.colors.green(serverOptions.port.toString())));
+                        }
+                    });
+                });
+            } else {
+                jeliUtils.console.setInitial(('  ' + protocol + canonicalHost + ':' + jeliUtils.colors.green(serverOptions.port.toString())));
+            }
+
+            if (typeof serverOptions.proxy === 'string') {
+                jeliUtils.console.setInitial('Unhandled requests will be served from: ' + serverOptions.proxy);
+            }
+
+            jeliUtils.console.clear('Hit CTRL-C to stop the server');
+            if (options.path) {
+                var openUrl = protocol + canonicalHost + ':' + serverOptions.port;
+                if (jeliUtils.typeOf(options.path, 'string')) {
+                    openUrl += options.path[0] === '/' ? options.path : '/' + options.path;
+                }
+                jeliUtils.console.write('open: ' + openUrl);
+                opener(openUrl, { app: options.browser });
+            }
+        });
+
+        // attach listener
+        attachListeners('Local server stopped, please reconnect.', () => {
+            server.close();
+            cleanup(serverOptions);
+        });
+
+        return server;
+    }
+
+    /**
+     * trigger the build instance
+     */
+    try {
+        exports.build(entry, options, startServer);
+    } catch (err) {
+        jeliUtils.abort(err.message);
+    }
+
 }
 
 
-exports.test = function(entry, optionns) {
+exports.test = function(entry, options) {
 
 };

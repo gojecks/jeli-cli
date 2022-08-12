@@ -3,15 +3,23 @@ const helper = require('@jeli/cli-utils');
 const fs = require('fs-extra');
 const lodashTemplate = require('lodash.template');
 const uglify = require('uglify-js');
-const nodeSass = require('node-sass');
 const symbol = "ϕ";
-
 const PATTERN = {
     MODULE: 'MODULE',
     UMD: 'UMD',
     DEFAULT: 'DEFAULT'
 };
 const cssFileHolder = new Map();
+let nodeSass = null;
+/**
+ * handle node sass error
+ */
+try {
+    nodeSass = require('node-sass');
+} catch (e) {
+    helper.abort(`\n${e.message}`);
+}
+
 
 /**
  * 
@@ -155,13 +163,16 @@ exports.generateBundleData = async function(compilerObject, fileNames) {
         packageJSON.version = compilerObject.buildOptions.version;
     }
 
+    if (compilerObject.buildOptions.hasStyles) {
+        packageJSON.stylesPath = 'bundles/styles.css';
+    }
+
     packageJSON.peerDependencies = packageJSON.peerDependencies || {};
     for (const prop in compilerObject.globalImports) {
         const globImp = compilerObject.globalImports[prop];
         if (globImp.name)
             packageJSON.peerDependencies[globImp.name] = verifyVersion(globImp.version);
     }
-
     exports.writeFile(outputPackageJSON, JSON.stringify(packageJSON, null, 2));
     saveCompilerData(compilerObject);
 }
@@ -268,6 +279,7 @@ exports.outputLibraryFiles = async function(compilerObject, scriptBody, moduleNa
     }
 
     await exports.copyFiles(compilerObject);
+    compilerObject.buildOptions.hasStyles = await writeCss(compilerObject.options, true);
     await exports.generateBundleData(compilerObject, files);
 };
 
@@ -279,7 +291,7 @@ exports.copyFiles = async compilerObject => {
     if (compilerObject.options.output.copy) {
         for (const file of compilerObject.options.output.copy) {
             try {
-                var dest = `${compilerObject.options.output.folder}${file.dest || (path.basename(file.src) + '/')}`;
+                const dest = `${compilerObject.options.output.folder}${file.dest || (path.basename(file.src) + '/')}`;
                 fs.copySync(file.src, dest, {
                     recursive: true,
                     overwrite: true
@@ -288,6 +300,14 @@ exports.copyFiles = async compilerObject => {
         }
     }
 }
+
+exports.copyAndUpdateAssetsFile = async(filePath, compilerObject) => {
+    const dest = `${compilerObject.options.output.folder}assets${filePath.split('assets')[1]}`;
+    fs.copySync(filePath, dest, {
+        recursive: true,
+        overwrite: true
+    });
+};
 
 /**
  * 
@@ -325,7 +345,7 @@ exports.outputApplicationFiles = async function(compilerObject, scriptBody, chan
 
     if (!changes) {
         await exports.copyFiles(compilerObject);
-        await writeCss(compilerObject.options, changes);
+        await writeCss(compilerObject.options);
         if (compilerObject.options.output.view) {
             exports.saveApplicationView(compilerObject);
         }
@@ -353,7 +373,7 @@ exports.saveApplicationView = async function(compilerObject) {
 async function extendImportExport(filePath, compilerObject, output, isModule) {
     const metaData = compilerObject.files[filePath];
     const defaultModuleImports = {};
-    metaData.imports.forEach(importItem => {
+    for (const importItem of metaData.imports) {
         if (importItem.default) {
             if (compilerObject.output.modules.hasOwnProperty(importItem.absolutePath)) {
                 /**
@@ -381,10 +401,10 @@ async function extendImportExport(filePath, compilerObject, output, isModule) {
                 output.unshift(`var ${specifier.local} = __required('${importItem.absolutePath}', '${specifier.imported}');\n`);
             });
         }
-    });
+    }
 
     // parse exports
-    metaData.exports.forEach(exp => {
+    for (const exp of metaData.exports) {
         if (helper.is(exp.exported, 'default')) {
             let value = output.pop();
             /**
@@ -404,7 +424,7 @@ async function extendImportExport(filePath, compilerObject, output, isModule) {
                 output.unshift(`\nexports.${exp.exported} = ${defaultModuleImports[exp.local]};`)
             }
         }
-    });
+    }
 }
 
 /**
@@ -453,10 +473,13 @@ async function resolveModules(compilerObject, fileChanged) {
  * @param {*} config 
  * @param {*} folder 
  */
-exports.pushStyle = (config, appendFolder) => {
-    const result = helper.stringifyContent(parseStyle(config));
-    if (appendFolder) {
-        appendFolder.push(result);
+exports.pushStyle = (config, append) => {
+    let result = parseStyle(config);
+    if (!result || !(result.substring(1, result.length - 2))) return;
+    result = helper.stringifyContent(result);
+
+    if (append) {
+        append.push(result);
     } else {
         cssFileHolder.set(config.elementFilePath, { result, config });
     }
@@ -480,7 +503,7 @@ exports.styleChanges = async(compilerObject, changes) => {
 
 function parseStyle(config) {
     const style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
-    if (!style) return "";
+    if (!style) return undefined;
     try {
         return nodeSass.renderSync({
             data: attachSelector(style),
@@ -528,8 +551,8 @@ function parseStyle(config) {
  * 
  * @param {*} options 
  */
-async function writeCss(options) {
-    const styles = [];
+async function writeCss(options, isLib = false) {
+    let styles = [];
     if (options.output.styles) {
         for (const style of options.output.styles) {
             exports.pushStyle({
@@ -537,8 +560,19 @@ async function writeCss(options) {
             }, styles);
         }
     }
+
     cssFileHolder.forEach(css => { if (css.result) styles.push(css.result); });
-    const script = loadTemplate('css', { styles });
-    styles.length = 0;
-    await exports.writeFile(`${options.output.folder}/styles.js`, script);
+    let outputFilePath = `${options.output.folder}/styles.js`;
+    if (!isLib) {
+        styles = loadTemplate('css', { styles });
+    } else {
+        outputFilePath = `${options.output.folder}/bundles/styles.css`;
+        styles = styles.map(c => c.substring(1, c.length - 1)).join('');
+    }
+
+    if (styles.length) {
+        await exports.writeFile(outputFilePath, styles);
+        styles = '';
+        return true;
+    }
 }

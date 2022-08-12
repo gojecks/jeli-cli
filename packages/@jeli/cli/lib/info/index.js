@@ -1,6 +1,4 @@
 const envInfo = require('envinfo');
-
-
 exports.cliInfo = _ => {
     envInfo.run({
         System: ['OS', 'CPU'],

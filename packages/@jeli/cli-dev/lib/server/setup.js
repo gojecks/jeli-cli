@@ -141,7 +141,7 @@ function setupStatic(options, app) {
             const filePath = path.join(options.root, options.entryFile);
             if (fs.existsSync(filePath)) {
                 let content = fs.readFileSync(filePath, 'utf8');
-                if (options.watch) {
+                if (options.enableSocket) {
                     content = content.replace(/<\/head>/, _ => {
                         return `${fs.readFileSync(path.join(__dirname, "../utils/snippet/livereload.html"), "utf8")}${_}`;
                     });

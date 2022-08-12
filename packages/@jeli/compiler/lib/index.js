@@ -5,26 +5,21 @@ const { CompilerObject, session } = require('./core/compilerobject');
 const helper = require('@jeli/cli-utils');
 const { getExt, spinner } = require('./core/loader');
 
-/**
- * 
- * @param {*} jeliSchema 
- * @param {*} entry 
- * @param {*} buildOptions 
- * @returns 
- */
-exports.builder = async function(jeliSchema, entry, buildOptions) {
-    if (!jeliSchema.projects[entry]) helper.console.error(`Invalid or no configuration specified`);
+
+exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
+    if (!projectSchema) helper.console.error(`Invalid or no configuration specified`);
     try {
-        const compilerObject = await CompilerObject(jeliSchema.projects[entry], buildOptions, jeliSchema.resolve);
+        const compilerObject = await CompilerObject(projectSchema, buildOptions, resolveSchema);
         await compiler(compilerObject);
         spinner.stop();
-        await generator(compilerObject);
+        await generator.generateApp(compilerObject);
 
         if (buildOptions.watch) {
             session.save(compilerObject);
         }
     } catch (e) {
         helper.abort(`\n${e.message}`);
+
     }
 
     return true;
@@ -37,18 +32,21 @@ exports.builder = async function(jeliSchema, entry, buildOptions) {
  */
 exports.buildByFileChanges = async function(filePath, eventType) {
     const { saveApplicationView } = require('./core/output');
-    helper.console.clear(`\nre-compiling ${helper.colors.green(filePath)}...\n`);
     const compilerObject = session.get();
     const indexObject = Object.values(compilerObject)[0];
     const indexPath = (`${indexObject.options.sourceRoot}/${indexObject.options.output.view}`);
-
-    if (helper.is(eventType, 'change')) {
+    const isAssetsChanges = filePath.includes('assets');
+    if (helper.is(eventType, 'change') && !isAssetsChanges) {
+        helper.console.clear(`\nre-compiling ${helper.colors.green(filePath)}...\n`);
         // index.html file changes
         // dont require complete compilation
         if (helper.is(indexPath, filePath))
             await saveApplicationView(indexObject);
         else
             await compileFileChanges();
+    } else if (isAssetsChanges) {
+        helper.console.clear(`\ncopying file ${helper.colors.green(filePath)}...\n`);
+        generator.updatesAppAssets(filePath, indexObject);
     }
 
     /**
@@ -72,11 +70,11 @@ exports.buildByFileChanges = async function(filePath, eventType) {
                 }
 
                 await singleCompiler(indexObject, fileChanges);
-                await generator(compilerObject, fileChanges);
+                await generator.generateApp(compilerObject, fileChanges);
                 break;
             case ('.css'):
             case ('.scss'):
-                await generator(compilerObject, fileChanges);
+                await generator.generateApp(compilerObject, fileChanges);
                 break;
         }
 

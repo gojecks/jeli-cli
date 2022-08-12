@@ -41,9 +41,14 @@ program
     .description('name of project to build as specified in jeli.json configuration')
     .option('-f, --cwd <workspace>', 'Change current working directory')
     .option('-v, --version <version>', 'version number to be built')
+    .option('--configuration <configiration>', 'choose configuration to compile with')
     .option('--prod', 'build application for production')
     .action((entry, cmd) => {
-        cliCommander('build', '@jeli/cli-dev').build(entry, jeliUtils.cleanArgs(cmd))
+        const args = jeliUtils.cleanArgs(cmd);
+        cliCommander('build', '@jeli/cli-dev').build(entry, {
+            configuration: args.configuration,
+            buildOptions: jeliUtils.extractArgs(['cwd', 'prod', 'version'], args)
+        })
     })
 
 program
@@ -51,7 +56,6 @@ program
     .description('serve a .js or .jl file in development mode with zero config')
     .option('-f, --cwd <workspace>', 'Change current working directory')
     .option('-o, --open', 'Open browser')
-    .option('-c, --copy', 'Copy local url to clipboard')
     .option('-h, --host <host>', 'Address to use [127.0.0.1]')
     .option('-p, --port <port>', 'Port used by the server (default: 4110)')
     .option('-g, --gzip', 'Serve gzip files when possible [false]')
@@ -62,8 +66,27 @@ program
     .option('--username  <username>', 'Username for basic authentication [none] \n Can also be specified with the env variable NODE_HTTP_SERVER_USERNAME')
     .option('--password <password>', 'Password for basic authentication [none] \n Can also be specified with the env variable NODE_HTTP_SERVER_PASSWORD')
     .option('-t <timeout>', 'Connections timeout in seconds [120], e.g. -t60 for 1 minute. \n To disable timeout, use -t0')
+    .option('--configuration <configiration>', 'choose configuration to compile with')
     .action((entry, cmd) => {
-        cliCommander('serve', '@jeli/cli-dev').serve(entry, jeliUtils.cleanArgs(cmd))
+        const args = jeliUtils.cleanArgs(cmd);
+        const root = `./.serve/${entry || 'main'}/`;
+        const serverOptions = jeliUtils.extractArgs('ssl,cert,key,proxy,username,password,timeout,gzip,port,host,open'.split(','), args);
+        cliCommander('serve', '@jeli/cli-dev').serve(entry, {
+            configuration: args.connfiguration || 'serve',
+            buildOptions: {
+                cwd: args.cwd,
+                watch: true,
+                output: {
+                    folder: root
+                }
+            },
+            serverOptions: Object.assign({
+                root,
+                cache: -1,
+                enableSocket: true,
+                entryFile: 'index.html',
+            }, serverOptions)
+        })
     })
 
 program

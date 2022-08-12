@@ -35,6 +35,20 @@ exports.updateJeliSchema = async(projectData, dir) => {
         json.projects[projectData.name].type = projectData.variant;
         if (jeliUtils.is('application', projectData.variant)) {
             json.projects[projectData.name].styling = projectData.style;
+            let replace = {};
+            replace[`${projectData.sourceroot}/environments/env.js`] = `${projectData.sourceroot}/environments/env.prod.js`;
+            json.projects[projectData.name].configurations = {
+                production: {
+                    buildOptions: {
+                        replace
+                    }
+                },
+                serve: {
+                    serverOptions: {
+                        port: 4110
+                    }
+                }
+            };
             json.projects[projectData.name].output = {
                 folder: "dist/",
                 view: "index.html",
