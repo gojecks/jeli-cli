@@ -269,10 +269,20 @@
      function templateCompiler(element, parent) {
          // set element to singleNode if single child 
          const len = (element && element.children && element.children.length);
+         const refId = element.refId;
+         const hasUseAttr = element.attr && element.attr.use;
+         if (hasUseAttr && len === 1) {
+             errorLogs.push(`<j-template> element does not support child elements with 'use' attribute. <j-template #${refId} use="${element.attr.use}"/ >`);
+             return null;
+         }
+
          if (len === 1) {
-             var refId = element.refId;
              element = element.children[0];
-             element.refId = refId;
+             if (typeof element == 'object') {
+                 element.refId = refId;
+             }
+         } else if (element.attr && element.attr.use) {
+             element = `%tmpl_${element.attr.use}%`
          } else if (!len) {
              return null;
          }
@@ -285,18 +295,18 @@
                  place: []
              };
              parent.templates.place.push(element);
-         } else if (templateOutletHolder[element.refId]) {
-             templateOutletHolder[element.refId].forEach(outletElement => {
-                 outletElement.template = `%tmpl_${element.refId}%`
+         } else if (templateOutletHolder[refId]) {
+             templateOutletHolder[refId].forEach(outletElement => {
+                 outletElement.template = `%tmpl_${refId}%`
                  if (outletElement.context) {
                      generateOutletContext(outletElement);
                  }
              });
 
-             delete templateOutletHolder[element.refId];
-             templatesMapHolder[element.refId] = element;
+             delete templateOutletHolder[refId];
+             templatesMapHolder[refId] = element;
          } else {
-             templatesMapHolder[element.refId] = element;
+             templatesMapHolder[refId] = element;
          }
 
          return null;
@@ -657,7 +667,7 @@
                  };
 
                  if (dir.length && delegateOrNorm.length) {
-                     item.target = dir.pop();
+                     item.target = dir.pop().split(',');
                  }
 
                  // set the item

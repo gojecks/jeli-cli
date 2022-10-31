@@ -174,7 +174,7 @@ async function CoreGenerator(compilerObject, entry, changes) {
         if (compilerObject.buildOptions.AOT) {
             output = `var $tmpl=${constructTemplate(parsedHtml.templatesMapHolder)}; ${constructContents(parsedHtml.parsedContent, 'viewRef')};`;
         } else {
-            output = `function(compiler){ 'use strict'; return function(viewRef){  var $tmpl=${replaceTemplateMappers(parsedHtml.templatesMapHolder, true)},_GT = function(templateId){ return $tmpl[templateId];}; return compiler.compile(${replaceTemplateMappers(parsedHtml.parsedContent)}, viewRef);}}(new core["ViewParser"].JSONCompiler)`;
+            output = `function(compiler){ 'use strict'; return function(viewRef){  var $tmpl=${replaceTemplateMappers(parsedHtml.templatesMapHolder, true)},_GT = function(templateId){ var tmp=$tmpl[templateId]; return tmp ? ((typeof tmp ==='object')?tmp : tmp()): null;}; return compiler.compile(${replaceTemplateMappers(parsedHtml.parsedContent)}, viewRef);}}(new core["ViewParser"].JSONCompiler)`;
         }
 
         attachViewSelectorProviders(parsedHtml.providers, compilerObject, imports, isLib).forEach(replaceProviders);
@@ -185,14 +185,12 @@ async function CoreGenerator(compilerObject, entry, changes) {
 
         function replaceTemplateMappers(template, attachWrapper) {
             template = JSON.stringify(template);
-            if (templateKeys.length) {
-                template = template.replace(new RegExp(`"%tmpl_(.*?)%"`, 'g'), (_, key) => {
-                    if (key === 'GT') return `${attachWrapper ? 'function(tid){ return _GT(tid);}':'_GT'}`;
-                    const templateKey = key.split('|');
-                    const tmpscript = `${templateKey[1] ? 'Object.assign('+JSON.stringify(parsedHtml.templateOptionsMapper[templateKey[1]])+', $tmpl.'+templateKey[0]+')' : '_GT("'+templateKey[0]+'")' }`;
-                    return `${attachWrapper ? 'function(){ return '+tmpscript+';}':tmpscript}`;
-                });
-            }
+            template = template.replace(new RegExp(`"%tmpl_(.*?)%"`, 'g'), (_, key) => {
+                if (key === 'GT') return `${attachWrapper ? 'function(tid){ return _GT(tid);}':'_GT'}`;
+                const templateKey = key.split('|');
+                const tmpscript = `${templateKey[1] ? 'Object.assign('+JSON.stringify(parsedHtml.templateOptionsMapper[templateKey[1]])+', $tmpl.'+templateKey[0]+')' : '_GT("'+templateKey[0]+'")' }`;
+                return `${attachWrapper ? 'function(){ return '+tmpscript+';}':tmpscript}`;
+            });
             return template;
         }
 

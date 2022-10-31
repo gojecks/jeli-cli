@@ -13,6 +13,13 @@
       var retryCount = 0;
 
       function ConnectSocket() {
+        if (retryCount) {
+          console.log(`trying to reconnect... count-> ${retryCount}`);
+          if (retryCount > 10) {
+            retryTimer = 60000;
+            retryCount = 0;
+          }
+        }
         var socket = new WebSocket(address);
         socket.addEventListener('close', function() {
           retryCount++;

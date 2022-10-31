@@ -11,6 +11,7 @@ const PATTERN = {
 };
 const cssFileHolder = new Map();
 let nodeSass = null;
+const fileNameMapper = {};
 /**
  * handle node sass error
  */
@@ -462,6 +463,7 @@ async function resolveModules(compilerObject, fileChanged) {
     const files = [];
     for (const filePath in compilerObject.output.modules) {
         const allowBuild = (!fileChanged || (fileChanged && helper.is(fileChanged, filePath)));
+        //fileNameMapper[filePath] = files.length
         files.push(`'${filePath}': ${await generateModuleDeps(compilerObject, filePath, allowBuild)}`);
     }
 
