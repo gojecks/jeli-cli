@@ -69,7 +69,7 @@ program
     .option('--configuration <configiration>', 'choose configuration to compile with')
     .action((entry, cmd) => {
         const args = jeliUtils.cleanArgs(cmd);
-        const root = `./.serve/${entry || 'main'}/`;
+        const root = `./node_modules/.jeliCache/serve/${entry || 'main'}/`;
         const serverOptions = jeliUtils.extractArgs('ssl,cert,key,proxy,username,password,timeout,gzip,port,host,open'.split(','), args);
         cliCommander('serve', '@jeli/cli-dev').serve(entry, {
             configuration: args.connfiguration || 'serve',

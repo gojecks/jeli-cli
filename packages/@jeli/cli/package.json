@@ -1,6 +1,6 @@
 {
     "name": "@jeli/cli",
-    "version": "0.0.0-PLACEHOLDER",
+    "version": "1.0.0",
     "description": "Command line interface for jeli-js",
     "scripts": {
         "test": "mocha --reporter spec"
@@ -33,8 +33,8 @@
         "shelljs": "0.8.3",
         "envinfo": "^7.5.0",
         "execa": "^4.0.0",
-        "@jeli/cli-dev": "0.0.0-PLACEHOLDER",
-        "@jeli/cli-utils": "0.0.0-PLACEHOLDER"
+        "@jeli/cli-dev": "1.0.0",
+        "@jeli/cli-utils": "1.0.0"
     },
     "bin": {
         "jeli": "bin/jeli.js"

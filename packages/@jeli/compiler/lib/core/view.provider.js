@@ -2,33 +2,46 @@ const helper = require('@jeli/cli-utils');
 const cached = {};
 
 
-exports.attachViewSelectorProviders = (providers, compilerObject, imports, isLib) => {
-    return Object.keys(providers).map(providerName => {
-        return attachToImportMapping(providers[providerName], providerName, compilerObject, imports, isLib);
-    });
-}
+exports.attachViewSelectorProviders = (compilerObject, isLib) => {
+    const filePaths = Object.keys(compilerObject.files);
+    const globalImports = Object.keys(compilerObject.globalImports);
 
-/**
- * Attach the providers to the importMapping
- */
-function attachToImportMapping(moduleName, providerName, compilerObject, imports, isLib) {
-    let outputName = isLib ? `exports` : moduleName;
-    if (compilerObject.jModule.hasOwnProperty(moduleName)) {
-        Object.keys(compilerObject.files)
-            .forEach(path => {
-                const moduleObj = compilerObject.files[path];
-                const exportedItem = moduleObj.exports.map(item => item.exported);
-                if (exportedItem.includes(moduleName)) {
+    return (providers, imports) => {
+        return Object.keys(providers).map(providerName => {
+            return attachToImportMapping(providers[providerName], providerName, imports);
+        });
+    };
+
+    function getFilePathByModuleName(moduleName){
+        return cached[moduleName] || filePaths.find(path => compilerObject.files[path].exports.some(exp => exp.exported === moduleName));
+    }
+
+    /**
+     * 
+     * @param {*} moduleName 
+     * @param {*} providerName 
+     * @param {*} imports 
+     * @returns 
+     */
+    function attachToImportMapping(moduleName, providerName, imports) {
+        let outputName = (isLib ? `exports` : moduleName);
+        if (compilerObject.jModule.hasOwnProperty(moduleName)) {
+            const filePath = getFilePathByModuleName(moduleName);
+            if (filePath) {
+                cached[moduleName] = filePath;
+                const fileDefinition = compilerObject.files[filePath];
+                if (!fileDefinition.lazyLoadModulePath) {
+                    const exportedItem = fileDefinition.exports.map(item => item.exported);
                     if (!exportedItem.includes(providerName)) {
-                        moduleObj.exports.push({
+                        fileDefinition.exports.push({
                             local: providerName,
                             exported: providerName
                         });
                     }
                     // push imported item
-                    if (!imports.some(imp => imp.absolutePath === path)) {
+                    if (!imports.some(imp => imp.absolutePath === filePath)) {
                         imports.push({
-                            absolutePath: path,
+                            absolutePath: filePath,
                             specifiers: [{
                                 local: moduleName
                             }],
@@ -36,29 +49,31 @@ function attachToImportMapping(moduleName, providerName, compilerObject, imports
                             noExports: true
                         });
                     }
+                } else {
+                    outputName = '';
                 }
-            });
-    } else {
-        let name = "";
-        if (compilerObject.globalImports.hasOwnProperty(moduleName)) {
-            name = moduleName;
+            }
         } else {
-            name = Object.keys(compilerObject.globalImports).
-            find(name => compilerObject.globalImports[name].specifiers.includes(moduleName));
+            let name = "";
+            if (compilerObject.globalImports.hasOwnProperty(moduleName)) {
+                name = moduleName;
+            } else {
+                name = globalImports.find(name => compilerObject.globalImports[name].specifiers.includes(moduleName));
+            }
+
+            const exists = imports.some(item => (helper.is(item.source, name)));
+            if (!exists) {
+                imports.push({
+                    source: name,
+                    specifiers: []
+                });
+            }
+            outputName = compilerObject.globalImports[name].output.arg;
         }
 
-        const exists = imports.some(item => (helper.is(item.source, name)));
-        if (!exists) {
-            imports.push({
-                source: name,
-                specifiers: []
-            });
-        }
-        outputName = compilerObject.globalImports[name].output.arg;
+        return {
+            outputName,
+            providerName
+        };
     }
-
-    return {
-        outputName,
-        providerName
-    };
 }

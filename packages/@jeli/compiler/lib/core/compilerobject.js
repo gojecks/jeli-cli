@@ -46,6 +46,7 @@ async function CompilerObject(options, buildOptions, resolvers) {
             separator: '\n',
             header: '',
             footer: '',
+            entryFile: 'main.js',
             generateMeta: false,
             patterns: ['MODULE'],
             folder: 'dist/'
@@ -119,7 +120,8 @@ async function CompilerObject(options, buildOptions, resolvers) {
             global: [],
             templates: {},
             styles: {},
-            tokens: {}
+            tokens: {},
+            lazyLoads: []
         };
         this.required = {};
         this.exports = [];

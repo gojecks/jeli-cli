@@ -3,23 +3,28 @@ const { compiler, singleCompiler } = require('./core/compiler');
 const generator = require('./core/generator');
 const { CompilerObject, session } = require('./core/compilerobject');
 const helper = require('@jeli/cli-utils');
-const { getExt, spinner } = require('./core/loader');
+const loader = require('./core/loader');
+const ComponentsResolver = require('./core/components.facade');
+const getAssetItem = (filePath, list) => (list || []).find(item  => filePath.includes(item.src));
 
-
+//start spinner
+loader.startSpinner();
 exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
     if (!projectSchema) helper.console.error(`Invalid or no configuration specified`);
     try {
         const compilerObject = await CompilerObject(projectSchema, buildOptions, resolveSchema);
-        await compiler(compilerObject);
-        spinner.stop();
-        await generator.generateApp(compilerObject);
+        for (const name in compilerObject) {
+            const componentsResolver = new ComponentsResolver(compilerObject[name]);
+            await compiler(componentsResolver);
+            loader.spinner.stop();
+            await generator.generateApp(componentsResolver, name);
+        }
 
         if (buildOptions.watch) {
             session.save(compilerObject);
         }
     } catch (e) {
         helper.abort(`\n${e.message}`);
-
     }
 
     return true;
@@ -34,8 +39,9 @@ exports.buildByFileChanges = async function(filePath, eventType) {
     const { saveApplicationView } = require('./core/output');
     const compilerObject = session.get();
     const indexObject = Object.values(compilerObject)[0];
+    const componentsResolver = new ComponentsResolver(indexObject);
     const indexPath = (`${indexObject.options.sourceRoot}/${indexObject.options.output.view}`);
-    const isAssetsChanges = filePath.includes('assets');
+    const isAssetsChanges = getAssetItem(filePath, indexObject.options.output.copy);
     if (helper.is(eventType, 'change') && !isAssetsChanges) {
         helper.console.clear(`\nre-compiling ${helper.colors.green(filePath)}...\n`);
         // index.html file changes
@@ -46,14 +52,14 @@ exports.buildByFileChanges = async function(filePath, eventType) {
             await compileFileChanges();
     } else if (isAssetsChanges) {
         helper.console.clear(`\ncopying file ${helper.colors.green(filePath)}...\n`);
-        generator.updatesAppAssets(filePath, indexObject);
+        generator.updatesAppAssets(filePath, indexObject, isAssetsChanges);
     }
 
     /**
      * compile file changes
      */
     async function compileFileChanges() {
-        const ext = getExt(filePath);
+        const ext = loader.getExt(filePath);
         const fileChanges = {
             filePath,
             ext,
@@ -61,23 +67,13 @@ exports.buildByFileChanges = async function(filePath, eventType) {
         };
 
         helper.console.clear('');
-        switch (ext) {
-            case ('.html'):
-            case ('.js'):
-            case ('.gs'):
-                if (indexObject.output.templates.hasOwnProperty(filePath)) {
-                    fileChanges.filePath = indexObject.output.templates[filePath];
-                }
-
-                await singleCompiler(indexObject, fileChanges);
-                await generator.generateApp(compilerObject, fileChanges);
-                break;
-            case ('.css'):
-            case ('.scss'):
-                await generator.generateApp(compilerObject, fileChanges);
-                break;
+        const recompile  = ['.js','.gs','.html'].includes(ext);
+        if (indexObject.output.templates.hasOwnProperty(filePath)) {
+            fileChanges.filePath = indexObject.output.templates[filePath];
         }
-
+        
+        if (recompile) await singleCompiler(componentsResolver, fileChanges);
+        await generator.generateApp(componentsResolver, null, fileChanges);
         return true;
     }
 

@@ -1,274 +1,238 @@
- /**
-  * core required Modules
-  */
- const helper = require('@jeli/cli-utils');
- const { escogen, generateAstSource } = require('./ast.generator');
- const path = require('path');
- const annotationParser = require('./annotation');
- const { resolveMetaData, getMetaData } = require('./compilerobject');
- const loader = require('./loader');
- const inProgress = [];
+/**
+ * core required Modules
+ */
+const helper = require('@jeli/cli-utils');
+const { escogen, generateAstSource } = require('./ast.generator');
+const path = require('path');
+const annotationParser = require('./annotation');
+const { resolveMetaData, getMetaData } = require('./compilerobject');
+const loader = require('./loader');
+const { getIndex } = require('./output-mapper');
+const inProgress = [];
 
- /**
-  * 
-  * @param {*} currentInstance 
-  * @param {*} loader 
-  */
- async function CoreCompiler(currentInstance) {
-     const filePath = path.join(currentInstance.options.sourceRoot, currentInstance.entryFile);
-     await processFile(currentInstance, filePath, null, false, null, true);
- }
+const addExt = filePath => {
+    const ext = path.extname(filePath);
+    if (!ext || !helper.is(ext, '.js')) {
+        filePath += '.js';
+    }
+    return filePath;
+}
 
- /**
-  * 
-  * @param {*} currentInstance 
-  * @param {*} filePath 
-  * @param {*} parentPath 
-  * @param {*} isExternalModule 
-  * @param {*} importedItem 
-  * @param {*} isEntry 
-  */
- async function processFile(currentInstance, filePath, parentPath, isExternalModule, importedItem, isEntry) {
-     if (currentInstance.files.hasOwnProperty(filePath)) {
-         return await validateImports(importedItem, currentInstance.files[filePath].exports, filePath, parentPath);
-     };
+/**
+ * 
+ * @param {*} currentInstance 
+ * @param {*} filePath 
+ * @param {*} parentPath 
+ * @param {*} lazyLoadModulePath 
+ * @param {*} isExternalModule 
+ * @param {*} importedItem 
+ * @param {*} isEntry 
+ * @returns 
+ */
+async function processFile(currentInstance, filePath, parentPath, lazyLoadModulePath, isExternalModule, importedItem, isEntry) {
+    const fileDefinition = currentInstance.getFile(filePath);
+    if (fileDefinition) {
+        // check if module was lazyloaded and registered as requiredModule
+        if (currentInstance.isLazyLoadedModule(filePath) && !fileDefinition.lazyLoadModulePath) {
+            loader.spinner.fail('');
+            const annot = currentInstance.getOutputModule(filePath);
+            helper.abort(`\n Error compiling lazyloaded module exported in ${helper.colors.yellow(filePath)}, reasons due to importation of (${helper.colors.yellow(annot.annotations[0].fn)}) in other modules.`);
+        }
 
-     /**
-      * prevent re-compiling file thats in progress
-      * this can occur with below dependency
-      * A -> B -> C -> A
-      *           
-      */
-     if (inProgress.includes(filePath)) {
-         return;
-     }
+        return await validateImports(importedItem, fileDefinition.exports, filePath, parentPath);
+    }
 
-     inProgress.push(filePath);
-     helper.writeline(filePath);
-     /**
-      * add the resolved filePath to currentInstance for reference
-      */
-     const fileImpExt = {
-         imports: [],
-         exports: [],
-         asModule: false,
-         declarations: {
-             fns: [],
-             vars: []
-         },
-         parentPath: isEntry ? parentPath : null
-     };
-     const output = {
-         type: 'source',
-         source: [],
-         annotations: []
-     };
+    /**
+     * prevent re-compiling file thats in progress
+     * this can occur with below dependency
+     * A -> B -> C -> A
+     *           
+     */
+    if (inProgress.includes(filePath)) {
+        return;
+    }
 
-     let source;
+    inProgress.push(filePath);
+    helper.writeline(filePath);
+    /**
+     * add the resolved filePath to currentInstance for reference
+     */
+    const fileImpExt = currentInstance.createFileEntry(filePath, isEntry ? parentPath : null, lazyLoadModulePath, isExternalModule);
+    const output = {
+        type: 'source',
+        source: [],
+        annotations: [],
+        isLazyLoaded: !!lazyLoadModulePath
+    };
 
-     // Read file source.
-     try {
-         source = loader.readFile(filePath, false, false, currentInstance.buildOptions.replace);
-         source = generateAstSource(extractRequired(currentInstance, source, filePath), fileImpExt);
-         if (!isExternalModule) {
-             currentInstance.exports.push.apply(currentInstance.exports, fileImpExt.exports);
-         }
+    let source;
 
-         await validateImports(importedItem, fileImpExt.exports, filePath, parentPath);
+    // Read file source.
+    try {
+        source = loader.readFile(filePath, false, false, currentInstance.compilerObject.buildOptions.replace);
+        source = generateAstSource(extractRequired(currentInstance, source, filePath), fileImpExt);
+        if (!isExternalModule) {
+            currentInstance.pushToExports(fileImpExt.exports);
+        }
 
-         /**
-          * process importedFiles
-          */
-         for (const impItem of fileImpExt.imports) {
-             await importFile(currentInstance, impItem, filePath);
-         }
+        await validateImports(importedItem, fileImpExt.exports, filePath, parentPath);
 
-         const otherScripts = escogen(source.scripts);
-         if (!isEntry)
-             output.source.push(otherScripts);
-         else
-             currentInstance.output.global.push(otherScripts);
-         for (const ast of source.annotations) {
-             await annotationParser(ast, filePath, output, currentInstance);
-         }
+        /**
+         * process importedFiles
+         */
+        for (const impItem of fileImpExt.imports) {
+            await importFile(currentInstance, impItem, filePath, isExternalModule, lazyLoadModulePath);
+        }
 
-         currentInstance.files[filePath] = fileImpExt;
-         inProgress.splice(inProgress.indexOf(filePath), 1);
-         if (!isEntry) {
-             _pushToDependency(currentInstance, filePath, output);
-         }
-     } catch (err) {
-         loader.spinner.fail('');
-         helper.console.error(`\nError while compiling ${helper.colors.yellow(filePath)} ${parentPath ? ' imported in '+helper.colors.yellow(parentPath) : '' }`);
-         helper.console.warn(`\nReasons: ${err.message || err}`);
-         helper.console.write('\nFix errors and try again.\n');
-     }
- }
+        const otherScripts = escogen(source.scripts);
+        if (!isEntry)
+            output.source.push(otherScripts);
+        else
+            currentInstance.pushGlobalOutPut(otherScripts);
+        /**
+         * process all file annotations
+         */
+        await annotationParser(source.annotations, filePath, output, currentInstance);
+        inProgress.splice(inProgress.indexOf(filePath), 1);
+        if (!isEntry) {
+            currentInstance.addOutPutEntry(filePath, output);
+        }
+    } catch (err) {
+        loader.spinner.fail('');
+        helper.console.error(`\nError while compiling ${helper.colors.yellow(filePath)} ${parentPath ? ' imported in ' + helper.colors.yellow(parentPath) : ''}`);
+        helper.console.warn(`\nReasons: ${err.message || err}`);
+        helper.console.write('\nFix errors and try again.\n');
+    }
+}
 
- /**
-  * 
-  * @param {*} importItem 
-  * @param {*} parentPath 
-  * @param {*} isExternalModule 
-  */
- async function importFile(currentInstance, importItem, parentPath, isExternalModule) {
-     /**
-      * resolve the dependency
-      */
-     const resolvedDep = loader.resolveDependency(importItem.source, parentPath, currentInstance.options.resolve);
-     const isLib = helper.is('library', currentInstance.options.type);
-     if (!resolvedDep) {
-         let importFilePath = importItem.source;
-         const ext = path.extname(importFilePath);
-         if (!ext || !helper.is(ext, '.js')) {
-             importFilePath += '.js';
-         }
+/**
+ * 
+ * @param {*} currentInstance 
+ */
+async function processLazyLoads(currentInstance) {
+    // trigger lazyloaded module
+    for (const modulePath of currentInstance.compilerObject.output.lazyLoads) {
+        await processFile(currentInstance, modulePath, null, modulePath);
+    }
+}
 
-         /**
-          * check for glob import
-          */
-         if (helper.isContain('*', importFilePath)) {
-             loader.spinner.warn(helper.colors.yellow(`glob patterns not allowed in statement: ${parentPath} -> ${importFilePath}`));
-         } else {
-             importFilePath = path.join(parentPath, '..', importFilePath);
-             await processFile(currentInstance, importFilePath, parentPath, isExternalModule, importItem, false);
-             addAbsolutePath(importItem, importFilePath, isLib);
-         }
-     } else {
-         if (resolvedDep) await resolveMetaData(resolvedDep, importItem);
-         else {
-             loader.spinner.fail(`unable to resolve dependency ${importItem.source} -> ${parentPath}`);
-             helper.console.error('compilation stopped');
-         }
+/**
+ * 
+ * @param {*} currentInstance 
+ * @param {*} importItem 
+ * @param {*} parentPath 
+ * @param {*} isExternalModule 
+ * @param {*} lazyLoadModulePath 
+ */
+async function importFile(currentInstance, importItem, parentPath, isExternalModule, lazyLoadModulePath) {
+    /**
+     * resolve the dependency
+     */
+    const options = currentInstance.compilerObject.options;
+    const resolvedDep = loader.resolveDependency(importItem.source, options.resolve);
+    const isLib = helper.is('library', options.type);
+    if (!resolvedDep) {
+        let importFilePath = addExt(importItem.source);
+        /**
+         * check for glob import
+         */
+        if (helper.isContain('*', importFilePath)) {
+            return loader.spinner.warn(helper.colors.yellow(`glob patterns not allowed in statement: ${parentPath} -> ${importFilePath}`));
+        }
+        importFilePath = path.join(parentPath, '..', importFilePath);
+        await processFile(currentInstance, importFilePath, parentPath, lazyLoadModulePath, isExternalModule, importItem);
+        addAbsolutePath(importItem, importFilePath, isLib);
+    } else {
+        if (resolvedDep) await resolveMetaData(resolvedDep, importItem);
+        else {
+            loader.spinner.fail(`unable to resolve dependency ${importItem.source} -> ${parentPath}`);
+            helper.console.error('compilation stopped');
+        }
 
-         if (!currentInstance.globalImports.hasOwnProperty(importItem.source)) {
-             currentInstance.globalImports[importItem.source] = {
-                 output: helper.trimPackageName(importItem.source),
-                 specifiers: [],
-                 absolutePath: resolvedDep.source,
-                 version: resolvedDep.version,
-                 name: resolvedDep.name
-             };
+        currentInstance.pushGlobalImports(importItem, helper.trimPackageName(importItem.source), resolvedDep);
 
-             if (resolvedDep.stylesPath) {
-                 if (!currentInstance.options.output.styles) {
-                     currentInstance.options.output.styles = [];
-                 }
+        if (!isLib) {
+            await processFile(currentInstance, resolvedDep.source, parentPath, lazyLoadModulePath, true, importItem);
+        } else {
+            await validateImports(importItem, getMetaData(importItem.source).exports, importItem.source, parentPath);
+        }
 
-                 currentInstance.options.output.styles.push(resolvedDep.stylesPath);
-             }
-         }
+        addAbsolutePath(importItem, resolvedDep.source, isLib);
+    }
+}
 
-         importItem.specifiers.forEach(opt => {
-             if (!currentInstance.globalImports[importItem.source].specifiers.includes(opt.imported)) {
-                 currentInstance.globalImports[importItem.source].specifiers.push(opt.imported)
-             }
-         });
+function addAbsolutePath(importItem, absolutePath, isLib) {
+    if (!isLib) {
+        importItem.absolutePath = absolutePath;
+    }
+}
 
-         if (!isLib) {
-             await processFile(currentInstance, resolvedDep.source, parentPath, true, importItem, false);
-         } else {
-             await validateImports(importItem, getMetaData(importItem.source).exports, importItem.source, parentPath);
-         }
-
-         addAbsolutePath(importItem, resolvedDep.source, isLib);
-     }
- }
-
- function addAbsolutePath(importItem, absolutePath, isLib) {
-     if (!isLib) {
-         importItem.absolutePath = absolutePath;
-     }
- }
-
- /**
-  * 
-  * @param {*} source 
-  * @param {*} filePath 
-  */
- function extractRequired(currentInstance, source, filePath) {
-     return source.replace(/require\((.*)\)/g, (_, value) => {
-         value = path.join(filePath, '..', helper.removeSingleQuote(value));
-         _pushToDependency(currentInstance, value, {
-             type: 'required',
-             path: value,
-             source: [loader.readFile(value)]
-         });
-         return `__required('${value}', 'exports')`;
-     });
- }
-
- /**
-  * 
-  * @param {*} filePath 
-  * @param {*} parentPath 
-  */
- function _pushToDependency(currentInstance, filePath, value) {
-     if (!currentInstance.output.modules.hasOwnProperty(filePath)) {
-         currentInstance.output.modules[filePath] = value;
-     }
- }
-
- /**
-  * 
-  * @param {*} importedItem 
-  * @param {*} exported 
-  */
- async function validateImports(importedItem, exported, filePath, parentPath) {
-     exported = exported.map(item => item.exported);
-     const invalidImport = hasInvalidImport(importedItem, exported);
-     if (invalidImport && invalidImport.length) {
-         loader.spinner.fail('');
-         helper.console.error(`\n no exported name(s) ${helper.colors.yellow(invalidImport.map(item => item.imported).join(' , '))} in ${helper.colors.yellow(filePath)} imported in ${helper.colors.yellow(parentPath)}\n`);
-     }
- }
+/**
+ * 
+ * @param {*} source 
+ * @param {*} filePath 
+ */
+function extractRequired(currentInstance, source, filePath) {
+    return source.replace(/(require|lazyload)\((.*?)\)/g, (_, key, value) => {
+        value = path.join(filePath, '..', helper.removeSingleQuote(value));
+        if (key === 'require') {
+            currentInstance.addOutPutEntry(value, {
+                type: key,
+                path: value,
+                source: [loader.readFile(value)]
+            });
+            return `__required(${getIndex(value)}, 'exports')`;
+        } else {
+            value = addExt(value);
+            currentInstance.pushToLazyLoads(value)
+            return `__required.l(${getIndex(value)})`;
+        }
+    });
+}
 
 
- /**
-  * 
-  * @param {*} importItem 
-  * @param {*} exportedItem 
-  */
- function hasInvalidImport(importItem, exportedItem) {
-     if (!importItem || importItem.default || importItem.nameSpace || !importItem.specifiers.length) return false;
-     return importItem.specifiers.filter(item => !exportedItem.includes(item.imported));
- }
 
- exports.compiler = async function(compilerObject) {
-     for (const name in compilerObject) {
-         await CoreCompiler(compilerObject[name]);
-     }
- };
- /**
-  * 
-  * @param {*} compilerObject 
-  * @param {*} changes 
-  */
- exports.singleCompiler = async(compilerObject, changes) => {
-     let moduleName = '';
-     const components = ['Directive', 'Element', 'Pipe', 'jModule'];
-     // check if file was previouslyy compiled 
-     if (compilerObject.files.hasOwnProperty(changes.filePath)) {
-         const obj = compilerObject.output.modules[changes.filePath];
-         // remove all mapped annotations 
-         if (obj && obj.annotations) {
-             obj.annotations.forEach(annot => {
-                 if (components.includes(annot.type)) {
-                     moduleName = compilerObject[annot.type][annot.fn].module;
-                 }
-                 delete compilerObject[annot.type][annot.fn];
-             });
-         }
-         // finally remove the object from compilerObject instance
-         delete compilerObject.files[changes.filePath];
-         delete compilerObject.output.modules[changes.filePath];
-     }
-     await processFile(compilerObject, changes.filePath);
-     const newObject = compilerObject.output.modules[changes.filePath];
-     if (newObject && newObject.annotations && moduleName && compilerObject.jModule.hasOwnProperty(moduleName)) {
-         newObject.annotations.forEach(annot => {
-             if (components.includes(annot.type))
-                 compilerObject[annot.type][annot.fn].module = moduleName;
-         });
-     }
- }
+/**
+ * 
+ * @param {*} importedItem 
+ * @param {*} exported 
+ */
+async function validateImports(importedItem, exported, filePath, parentPath) {
+    exported = exported.map(item => item.exported);
+    const invalidImport = hasInvalidImport(importedItem, exported);
+    if (invalidImport && invalidImport.length) {
+        loader.spinner.fail('');
+        helper.console.error(`\n no exported name(s) ${helper.colors.yellow(invalidImport.map(item => item.imported).join(' , '))} in ${helper.colors.yellow(filePath)} imported in ${helper.colors.yellow(parentPath)}\n`);
+    }
+}
+
+
+/**
+ * 
+ * @param {*} importItem 
+ * @param {*} exportedItem 
+ */
+function hasInvalidImport(importItem, exportedItem) {
+    if (!importItem || importItem.default || importItem.nameSpace || !importItem.specifiers.length) return false;
+    return importItem.specifiers.filter(item => !exportedItem.includes(item.imported));
+}
+
+
+
+exports.compiler = async function (componentsResolver) {
+    const filePath = path.join(componentsResolver.compilerObject.options.sourceRoot, componentsResolver.compilerObject.entryFile);
+    await processFile(componentsResolver, filePath, null, null, false, null, true);
+    await processLazyLoads(componentsResolver);
+};
+/**
+ * 
+ * @param {*} compilerObject 
+ * @param {*} changes 
+ */
+exports.singleCompiler = async (componentsResolver, changes) => {
+    // check if file was previouslyy compiled 
+    const components = ['Directive', 'Element', 'Pipe', 'jModule'];
+    const {moduleName, lazyLoadModulePath} = componentsResolver.cleanFileEntry(changes.filePath, components)
+    await processFile(componentsResolver, changes.filePath, null, lazyLoadModulePath);
+    componentsResolver.updateAnnotation(changes.filePath, moduleName, components);
+}

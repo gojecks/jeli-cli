@@ -1,9 +1,7 @@
 const helper = require('@jeli/cli-utils');
 const { escogen, parseAst } = require('./ast.generator');
-const { isExportedToken } = require('./compilerobject');
 const { parseQuery } = require('./query_selector');
 const loader = require('./loader');
-const ComponentsResolver = require('./components.facade');
 const AnnotationsEnum = {
     SERVICES: 'SERVICES',
     REQUIREDMODULES: 'REQUIREDMODULES',
@@ -17,14 +15,12 @@ const AnnotationsEnum = {
  * @param {*} ast 
  * @param {*} filePath 
  * @param {*} outputInstance 
- * @param {*} compilerObject 
- * @param {*} importObject 
+ * @param {*} componentsResolver 
  */
-module.exports = async function(ast, filePath, outputInstance, compilerObject) {
+function processAst(ast, filePath, outputInstance, componentsResolver) {
     const annotations = [escogen(ast.impl)];
     const compilerError = [];
     const fn = ast.impl[0].id.name;
-    const componentsResolver = ComponentsResolver(compilerObject);
 
     try {
         _structureDI(ast.definitions);
@@ -71,7 +67,7 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
      */
     function validateModule(moduleObj, fnName) {
         Object.keys(moduleObj).forEach(_validate);
-
+        
         /**
          * 
          * @param {*} type 
@@ -105,17 +101,18 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
          */
         function _validateService() {
             moduleObj.services = moduleObj.services.filter(service => {
+                const serviceDefinition = componentsResolver.getLocalService(service);
                 if (helper.typeOf(service, 'object')) {
                     validateToken(service);
                     annotations.push(`${service.name}.register(${getTokenValue(service)}, true);`);
                     return false;
-                } else if (!compilerObject.Service.hasOwnProperty(service)) {
+                } else if (!serviceDefinition) {
                     compilerError.push(`service -> ${service} implementation not found.`);
                     return false;
                 }
 
-                if (!compilerObject.Service[service].module) {
-                    compilerObject.Service[service].module = fnName;
+                if (!serviceDefinition.module) {
+                    serviceDefinition.module = fnName;
                 }
 
                 return true;
@@ -153,11 +150,10 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
          * validate selectors
          */
         function _validateSelectors() {
-            var getElement = name => compilerObject.Directive[name] || compilerObject.Element[name];
             moduleObj.selectors.forEach(elementFn => {
+                const element = componentsResolver.getLocalSelector(elementFn);
                 if (helper.typeOf(elementFn, 'object')) {
                     if (elementFn.useExisting && elementFn.selector) {
-                        const element = getElement(elementFn.useExisting);
                         if (!element) {
                             return compilerError.push(`${elementFn.useExisting} is registered in ${fnName} module but implementation does not exists.`);
                         }
@@ -169,14 +165,13 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
                             module: fnName,
                             link: element
                         });
-                        compilerObject[elementFn.selector.includes('-') ? 'Element' : 'Directive'][newClassName] = newInstance;
+                        componentsResolver.addEntry(elementFn.selector.includes('-') ? 'Element' : 'Directive', newClassName, newInstance)
                         return;
                     }
 
                     return compilerError.push(`Invalid definition ${JSON.stringify(elementFn)}, missing property "useExisiting|selector"`);
                 }
 
-                const element = compilerObject.Directive[elementFn] || compilerObject.Element[elementFn];
                 if (!element) {
                     compilerError.push(`${elementFn} is registered in ${fnName} module but implementation does not exists.`);
                     return;
@@ -210,10 +205,10 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
      * @param {*} token 
      */
     function validateToken(token) {
-        if (!isExportedToken(token.name, compilerObject))
+        if (!componentsResolver.isExportedToken(token.name))
             compilerError.push(`Token<${token.name}> definition not found.`);
         if (token.useClass) {
-            const serviceImpl = compilerObject.Service[token.useClass];
+            const serviceImpl = componentsResolver.getLocalService(token.useClass);
             if (!serviceImpl) {
                 compilerError.push(`Missing implementation for ${token.useClass} provided in ${token.name}`);
             } else if (serviceImpl.DI) {
@@ -221,7 +216,7 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
             }
         } else if (token.factory && token.DI) {
             token.DI.forEach(di => {
-                if (helper.typeOf(di, 'string') && !/['"]/.test(di.charAt(0)) && !isExportedToken(di, compilerObject)) {
+                if (helper.typeOf(di, 'string') && !/['"]/.test(di.charAt(0)) && !componentsResolver.isExportedToken(di)) {
                     compilerError.push(`unable to find dependency ${helper.colors.yellow(di)}`);
                 }
             });
@@ -298,11 +293,9 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
      * @param {*} message 
      */
     function _registerOrThrowError(type, fn, obj, message) {
-        if (compilerObject[type].hasOwnProperty(fn)) {
+        if (!componentsResolver.addEntry(type, fn, obj)) {
             compilerError.push(message);
-        } else {
-            compilerObject[type][fn] = obj;
-        }
+        } 
     }
 
     /**
@@ -328,13 +321,13 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
              * input:type=text:model:form-field, textarea
              */
             if (/[,|:=!]/g.test(obj.selector)) {
-                compilerObject.queries[obj.selector] = parseQuery(obj.selector);
+                componentsResolver.addEntry('queries', obj.selector, parseQuery(obj.selector))
             }
 
             /**
              * validate registerAs
              */
-            if (obj.registerAs && !isExportedToken(obj.registerAs, compilerObject)) {
+            if (obj.registerAs && !componentsResolver.isExportedToken(obj.registerAs)) {
                 compilerError.push(`Token<${obj.registerAs}> definition not found.`);
             }
 
@@ -345,7 +338,7 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
                      Which states a custom element should contain an hyphen e.g <my-element>`);
                 }
 
-                ParseViewChild(obj);
+                ParseChild(obj,['viewChild','contentChild','contentChildren']);
             }
 
         } catch (e) {
@@ -368,14 +361,31 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
         }
     }
 
-    function ParseViewChild(obj) {
-        if (obj.viewChild && obj.viewChild.length) {
-            obj.viewChild = obj.viewChild.reduce((accum, item) => {
-                item = helper.stringToObjectNameValueMapping(item, true, true, true);
-                accum.push(item);
-                return accum;
-            }, []);
-        }
+    /**
+     * 
+     * @param {*} obj 
+     * @param {*} listOfAnnotations 
+     */
+    function ParseChild(obj, listOfAnnotations) {
+        listOfAnnotations.forEach(prop => {
+            if (obj[prop] && obj[prop].length) {
+                // QueryList not allowed for @contentChild 
+                
+    
+                obj[prop] = obj[prop].reduce((accum, item) => {
+                    item = helper.stringToObjectNameValueMapping(item, true, true, true);
+                    if(['contentChild'].includes(prop) && item.ql){
+                        compilerError.push(`QueryList cannot be used with ${prop} -> ${item}`);
+                        return accum;
+                    } else if ('contentChildren' == prop && !item.ql){
+                        compilerError.push(`${prop} must be used with a QueryList  -> ${item}`);
+                        return accum;
+                    }
+                    accum.push(item);
+                    return accum;
+                }, []);
+            }
+        });
     }
 
     /**
@@ -385,7 +395,7 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
     function ParseAndValidateResolvers(obj) {
         if (obj.resolve && obj.resolve.length) {
             obj.resolve.forEach(item => {
-                if (helper.typeOf(item, 'string') && !isExportedToken(item, compilerObject)) return;
+                if (helper.typeOf(item, 'string') && !componentsResolver.isExportedToken(item)) return;
                 else if (helper.typeOf(item, 'object')) {}
             });
         }
@@ -451,4 +461,15 @@ module.exports = async function(ast, filePath, outputInstance, compilerObject) {
             }
         });
     }
+}
+
+/**
+ * 
+ * @param {*} annotations 
+ * @param {*} filePath 
+ * @param {*} outputInstance 
+ * @param {*} componentsResolver 
+ */
+module.exports = async (annotations, filePath, outputInstance, componentsResolver) => {
+    annotations.forEach(ast => processAst(ast, filePath, outputInstance, componentsResolver));
 }

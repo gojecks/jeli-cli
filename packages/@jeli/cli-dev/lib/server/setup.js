@@ -137,7 +137,9 @@ function setupStatic(options, app) {
 
     app.use((req, res) => {
         res.setHeader('x-powered-by', 'jeli');
-        if (options.entryFile && jeliUtils.is(req.url, '/')) {
+        const pathReq = req.url.split('?')[0];
+        const isContentRequest = /(\w+\.\w+)/.test(pathReq)
+        if (options.entryFile && !isContentRequest) {
             const filePath = path.join(options.root, options.entryFile);
             if (fs.existsSync(filePath)) {
                 let content = fs.readFileSync(filePath, 'utf8');
@@ -195,7 +197,7 @@ function setupSpa(options, app) {
             var route = req.url;
             req.url = '/';
             res.statusCode = 302;
-            res.setHeader('Location', `${req.url}#${route}`);
+            res.setHeader('Location', `${req.url}${route}`);
             res.end();
         });
     }

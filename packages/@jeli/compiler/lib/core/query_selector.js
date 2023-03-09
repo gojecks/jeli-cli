@@ -196,3 +196,21 @@ exports.parseQuery = querySelector => {
         return ret;
     })
 }
+
+/**
+ * find matching query for viewChild or contentChildren
+ * @param {*} queryList
+ * @param {*} astNode 
+ * @returns matchViewQuery
+ */
+exports.matchViewQueryFromAstNode = function(queryList, astNode){
+        return queryList.find(query => {
+            const castedValue = query.value.replace(/\'/g, '');
+            return (
+                helper.is(astNode.refId, castedValue) ||
+                helper.is(astNode.name, castedValue) ||
+                (query.isdir && astNode.directives && astNode.directives.hasOwnProperty(castedValue)) ||
+                (astNode.attr && helper.is(astNode.attr['selector'], castedValue))
+            );
+        })
+     }

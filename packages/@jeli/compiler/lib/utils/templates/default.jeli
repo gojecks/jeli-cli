@@ -4,31 +4,76 @@
     factory(__required);
 }(function(__required) {
     <%=entry%>
-}, (function(modules,  global) { 
+}, (function(modules,  self) { 
     'use strict';
-    var installedModules = {};
+    var OD = Object.defineProperty,
+    installedModules = {},
+    dep_name = 'jeli_chunk_loaded',
+    buildArgs = <%=buildArgs%>,
+    pendingLazyLoad = [];
+    OD(self, dep_name, {
+        set: function(value) {
+            Object.assign(modules, value || {});
+        }
+    });
+
     function __required(moduleId, property) {
         'use strict';
         if (!installedModules.hasOwnProperty(moduleId)){
             /** create a new ref **/ 
             installedModules[moduleId] = { exports: true };
             try {
-                modules[moduleId](installedModules[moduleId], installedModules[moduleId], __required, global);
+                modules[moduleId](installedModules[moduleId], installedModules[moduleId], __required, self);
             } catch (e) {}
         }
 
         return property ? installedModules[moduleId][property] : installedModules[moduleId];
-    };
+    }
 
-    __required.r = function(context, name, getter) {
+    function loadScript(mid){
+        var scriptElement = document.createElement('script');
+        var path = [buildArgs.deployURL || '', mid, ".js"].join('')
+        scriptElement.src = path;
+        scriptElement.type = "module";
+        scriptElement.async = true;
+        scriptElement.charset = "utf-8";
+        scriptElement.timeout = 120;
+        (document.getElementsByTagName('head')[0]).appendChild(scriptElement);
+        if (0 > scriptElement.src.indexOf(window.location.origin + "/")) {
+            scriptElement.crossOrigin = "use-credentials"
+        }
+        return scriptElement;
+    }
+
+    __required.r = function(context, name, value) {
         if (!context.hasOwnProperty(name)) {
-            Object.defineProperty(context, name, {
-                get: getter,
+            OD(context, name, {
+                get: value,
                 configurable: false,
                 enumerable: true
             });
         }
-    }
+    };
+
+    __required.l = function(mid) {
+        return new Promise(function(resolve, reject){
+            if (pendingLazyLoad.includes(mid)) return;
+            if (installedModules[mid]) {
+                resolve(installedModules[mid]);
+            } else {
+                pendingLazyLoad.push(mid);
+                var scriptElement = loadScript(mid);
+                scriptElement.onreadystatechange = scriptElement.onload = scriptElement.onerror  = function() {
+                    var state = scriptElement.readyState;
+                    if ((!state || /loaded|complete/.test(state))) {
+                        resolve(__required(mid));
+                        pendingLazyLoad.splice(pendingLazyLoad.indexOf(mid), 1);
+                    }
+                    scriptElement.parentNode.removeChild(scriptElement);
+                };
+            }
+        });
+    };
 
     return __required;
-})( /** JELI DEPENDECY HUB **/ <%=modules%>, this));
+})( /** JELI DEPENDECY HUB **/ <%=main%>, this));

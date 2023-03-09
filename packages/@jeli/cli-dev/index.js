@@ -129,11 +129,7 @@ exports.serve = async function(entry, options) {
             var canonicalHost = jeliUtils.is(serverOptions.host, '127.0.0.1') ? 'localhost' : serverOptions.host,
                 protocol = serverOptions.ssl ? 'https://' : 'http://';
 
-            jeliUtils.console.setInitial([jeliUtils.colors.yellow('Starting up local server, serving '),
-                jeliUtils.colors.cyan(serverOptions.root),
-                serverOptions.ssl ? (jeliUtils.colors.yellow(' through') + jeliUtils.colors.cyan(' https')) : '',
-                jeliUtils.colors.yellow('\nAvailable on:')
-            ].join(''));
+            jeliUtils.console.setInitial(jeliUtils.colors.yellow('Starting up local server, \nAvailable on:'));
 
             if (jeliUtils.is(serverOptions.host, '0.0.0.0')) {
                 Object.keys(ifaces).forEach(function(dev) {

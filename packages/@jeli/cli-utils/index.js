@@ -39,7 +39,7 @@ exports.objectStringToAsIs = (annot, props) => {
 exports.quoteFix = (props, annot, addQuote) => {
     props.forEach(prop => {
         if (annot.hasOwnProperty(prop)) {
-            annot[prop] = addQuote ? `'${annot[prop]}'` : exports.removeSingleQuote(annot[prop]);
+            annot[prop] = addQuote ? `'${annot[prop]}'` : this.removeSingleQuote(annot[prop]);
         }
     });
 };
@@ -193,7 +193,12 @@ exports.stringToObjectNameValueMapping = (prop, useName, skipQuoteValue, skipQuo
     }
 
     if (nameProp.length) {
-        item.type = addQuote(nameProp.pop(), skipQuoteType);
+        const spltNameProp = nameProp.pop().split(/\<(.*?)\>$/);
+        item.type = addQuote(spltNameProp[1] || spltNameProp[0], skipQuoteType);
+        if (spltNameProp[0] === 'QueryList'){
+            // attach queryList flag
+            item.ql=true;
+        }
     }
 
     if (inp.length || useName) {

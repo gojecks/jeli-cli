@@ -3,6 +3,7 @@ const helper = require('@jeli/cli-utils');
 const fs = require('fs-extra');
 const lodashTemplate = require('lodash.template');
 const uglify = require('uglify-js');
+const { getIndex } = require('./output-mapper');
 const symbol = "ϕ";
 const PATTERN = {
     MODULE: 'MODULE',
@@ -11,7 +12,7 @@ const PATTERN = {
 };
 const cssFileHolder = new Map();
 let nodeSass = null;
-const fileNameMapper = {};
+
 /**
  * handle node sass error
  */
@@ -21,6 +22,222 @@ try {
     helper.abort(`\n${e.message}`);
 }
 
+exports.PATTERN = PATTERN;
+/**
+ * 
+ * @param {*} fileName 
+ * @param {*} options 
+ */
+exports.writeFile = async function (filePath, data) {
+    try {
+        const dirName = path.dirname(filePath);
+        // check if folder already exist
+        // else create one
+        if (!fs.existsSync(dirName)) {
+            fs.mkdirpSync(dirName);
+        }
+
+        fs.writeFileSync(filePath, data);
+        // Print a success message.
+        helper.console.success(`generated file "${path.basename(filePath)}" size: (${helper.colors.yellow((data.length / 1024).toFixed(2) + 'kb')}) `);
+    } catch (e) {
+        helper.console.error(`unable to save file, please try again`);
+        helper.abort(e);
+    }
+}
+
+
+/**
+ * 
+ * @param {*} filePath 
+ * @param {*} compilerObject 
+ */
+exports.generateBundleData = async function (compilerObject, fileNames) {
+    /**
+     * existing and new packageJSON path
+     */
+    const existingPackageJSON = path.join(compilerObject.options.sourceRoot, compilerObject.entryFile, '..', './package.json');
+    const outputPackageJSON = path.join(compilerObject.options.output.folder, compilerObject.entryFile, '..', './package.json');
+    /**
+     * write the bundle path to packageJson object
+     */
+    let packageJSON = Object.keys(fileNames).reduce((accum, type) => {
+        accum[type === 'UMD' ? 'main' : type.toLowerCase()] = `${getRelativePath(fileNames[type], path.dirname(outputPackageJSON))}`;
+        return accum;
+    }, {});
+
+    /**
+     * check for existing packageJSON data
+     * then extend the existing data
+     * 
+     */
+    if (fs.existsSync(existingPackageJSON)) {
+        packageJSON = Object.assign(JSON.parse(fs.readFileSync(existingPackageJSON)), packageJSON);
+    }
+
+    if (compilerObject.buildOptions.version) {
+        packageJSON.version = compilerObject.buildOptions.version;
+    }
+
+    if (compilerObject.buildOptions.hasStyles) {
+        packageJSON.stylesPath = 'bundles/styles.css';
+    }
+
+    packageJSON.peerDependencies = packageJSON.peerDependencies || {};
+    for (const prop in compilerObject.globalImports) {
+        const globImp = compilerObject.globalImports[prop];
+        if (globImp.name)
+            packageJSON.peerDependencies[globImp.name] = verifyVersion(globImp.version);
+    }
+    exports.writeFile(outputPackageJSON, JSON.stringify(packageJSON, null, 2));
+    saveCompilerData(compilerObject);
+}
+
+/**
+ * 
+ * @param {*} compilerObject 
+ * @param {*} moduleName 
+ */
+exports.outputLibraryFiles = async function (compilerObject, moduleName) {
+    const files = {};
+    const scriptBody = extractSourceCode(compilerObject, true);
+    for (const type of compilerObject.options.output.patterns) {
+        files[type] = await buildByType(type, scriptBody, moduleName, compilerObject);
+    }
+
+    await exports.copyFiles(compilerObject);
+    compilerObject.buildOptions.hasStyles = await writeCss(compilerObject.options, true);
+    await exports.generateBundleData(compilerObject, files);
+};
+
+/**
+ * 
+ * @param {*} filesToCopy 
+ */
+exports.copyFiles = async compilerObject => {
+    if (compilerObject.options.output.copy) {
+        for (const file of compilerObject.options.output.copy) {
+            try {
+                const dest = `${compilerObject.options.output.folder}${file.dest || (path.basename(file.src) + '/')}`;
+                fs.copySync(file.src, dest, {
+                    recursive: true,
+                    overwrite: true
+                });
+            } catch (exception) { }
+        }
+    }
+}
+
+exports.copyAndUpdateAssetsFile = async (filePath, compilerObject, item) => {
+    if (!fs.existsSync(filePath)) return;
+    const basename  = path.basename(item.src);
+    const dest = `${compilerObject.options.output.folder}${basename}${filePath.split(basename)[1]}`;
+    try {
+        fs.copySync(filePath, dest, {
+            recursive: true,
+            overwrite: true
+        });
+    } catch (e) { }
+}
+
+/**
+ * 
+ * @param {*} compilerObject 
+ * @param {*} changes 
+ */
+exports.outputApplicationFiles = async function (compilerObject, changes) {
+    const getBootStrapModule = filePath => {
+        for(const imp of compilerObject.files[filePath].imports) {
+            const fn = imp.specifiers[0].local;
+            if (compilerObject.jModule[fn]){
+                return imp.absolutePath;
+            }
+        }
+    };
+
+    /**
+     * generate the script file with below conditions
+     * changes to .html .js .json
+     */
+    if (!changes || !changes.isStyles) {
+        const changesFilePath = changes ? changes.filePath : null;
+        const isLazyLoaded = changesFilePath && compilerObject.output.modules[changesFilePath].isLazyLoaded;
+        const isProdBuild = (compilerObject.buildOptions && compilerObject.buildOptions.prod);
+        if (!isLazyLoaded) {
+            const bootStrapFilePath = path.join(compilerObject.options.sourceRoot, compilerObject.entryFile);
+            const bootStrapModule = getBootStrapModule(bootStrapFilePath);
+            const main = await resolveModules(compilerObject, changesFilePath, bootStrapModule);
+            const fileName = `${compilerObject.options.output.folder}${compilerObject.entryFile}`;
+            const deps = [compilerObject.output.global];
+            const bstDeps = extendImportExport(bootStrapFilePath, compilerObject, deps);
+            const entry = writeGlobalImports(deps.join(''), bstDeps.$, false);
+            const buildArgs = JSON.stringify(compilerObject.buildOptions);
+            let script = loadTemplate('default', { entry, main, buildArgs });
+            await outputJSFiles(fileName, script, isProdBuild);
+        } else {
+            const lazyLoadModulePath = compilerObject.files[changesFilePath].lazyLoadModulePath;
+            if(changesFilePath && !compilerObject.output.lazyLoads.includes(lazyLoadModulePath)) {
+                compilerObject.output.lazyLoads.push(lazyLoadModulePath);
+            }
+        }
+
+        await writeLazyLoadModules(compilerObject, isProdBuild);
+    }
+
+    if (!changes) {
+        await exports.copyFiles(compilerObject);
+        await writeCss(compilerObject.options);
+        if (compilerObject.options.output.view) {
+            exports.saveApplicationView(compilerObject);
+        }
+        // saveCompilerData(compilerObject);
+    }
+}
+
+exports.saveApplicationView = async function (compilerObject) {
+    const viewFilePath = path.join(compilerObject.options.sourceRoot, compilerObject.options.output.view);
+    if (fs.existsSync(viewFilePath)) {
+        const files = ['styles.js', compilerObject.entryFile];
+        const html = fs.readFileSync(viewFilePath, 'utf8').replace(/<\/body>/, _ => {
+            return files.map(file => `<script src="./${file}" type="text/javascript"></script>`).join('\n') + '\n' + _;
+        });
+
+        fs.writeFileSync(`${compilerObject.options.output.folder}${compilerObject.options.output.view}`, html);
+    }
+};
+
+/**
+ * 
+ * @param {*} config 
+ * @param {*} folder 
+ */
+exports.pushStyle = (config, append) => {
+    let result = parseStyle(config);
+    if (!result || !(result.substring(1, result.length - 2))) return;
+    result = helper.stringifyContent(result);
+
+    if (append) {
+        append.push(result);
+    } else {
+        cssFileHolder.set(config.elementFilePath, { result, config });
+    }
+}
+
+/**
+ * 
+ * @param {*} compilerObject 
+ * @param {*} changes 
+ */
+exports.styleChanges = async (compilerObject, changes) => {
+    const elementFilePath = compilerObject.output.styles[changes.filePath];
+    const existingContent = cssFileHolder.get(elementFilePath);
+    this.pushStyle(existingContent ? existingContent.config : {
+        styleUrl: changes.filePath,
+        elementFilePath
+    });
+
+    await writeCss(compilerObject.options);
+};
 
 /**
  * 
@@ -55,13 +272,30 @@ function obfuscate(script, sourceMap) {
 
 /**
  * 
+ * @param {*} annotations 
+ */
+function isModule(annotations) {
+    return annotations && (annotations.find(annot => annot.isModule) || {}).fn;
+}
+
+/**
+ * 
+ * @param {*} template 
+ * @returns 
+ */
+function getTemplate(template) {
+    template = fs.readFileSync(path.resolve(__filename, `../../utils/templates/${template}.jeli`), { encoding: 'utf8' });
+    return lodashTemplate(template);
+}
+
+/**
+ * 
  * @param {*} template 
  * @param {*} data 
  */
 function loadTemplate(template, data) {
-    var templateData = fs.readFileSync(path.resolve(__filename, `../../utils/templates/${template}.jeli`), { encoding: 'utf8' });
-    templateData = lodashTemplate(templateData)(data);
-    return templateData;
+    var templateParser = getTemplate(template);
+    return templateParser(data);
 }
 
 /**
@@ -105,77 +339,39 @@ function saveCompilerData(compilerObject) {
     exports.writeFile(metaDataFilePath, JSON.stringify(compilerObject, null, 2).replace(/[']/g, ''));
 }
 
-exports.PATTERN = PATTERN;
+function extractSourceCode(compilerObject, isLib) {
+    const sourceCode = [];
+    if (isLib) {
+        Object.keys(compilerObject.output.modules).forEach(filePath => {
+            sourceCode.push(compilerObject.output.modules[filePath].source.join(''));
+        });
+    }
+
+    sourceCode.concat(compilerObject.output.global);
+    return sourceCode.join('\n');
+}
+
 /**
  * 
  * @param {*} fileName 
- * @param {*} options 
+ * @param {*} script 
+ * @param {*} isProd 
  */
-exports.writeFile = async function(filePath, data) {
-    try {
-        const dirName = path.dirname(filePath);
-        // check if folder already exist
-        // else create one
-        if (!fs.existsSync(dirName)) {
-            fs.mkdirpSync(dirName);
+async function outputJSFiles(fileName, script, isProd) {
+    /**
+     * obfuscate code if prod flag is sent
+     */
+    if (isProd) {
+        helper.console.write('obfuscating code...');
+        const uglifiedScript = obfuscate(script);
+        if (!uglifiedScript.error) {
+            script = uglifiedScript.code;
+        } else {
+            helper.console.error(`obfuscation failed for this file -> ${fileName}`);
         }
-
-        fs.writeFileSync(filePath, data);
-
-    } catch (e) {
-        helper.console.error(`unable to save file, please try again`);
-        helper.abort(e);
-    } finally {
-        // Print a success message.
-        helper.console.success(`generated file "${ path.basename(filePath) }" size: (${helper.colors.yellow((data.length/1024).toFixed(2)+ 'kb')}) `);
-    }
-}
-
-
-/**
- * 
- * @param {*} filePath 
- * @param {*} compilerObject 
- */
-exports.generateBundleData = async function(compilerObject, fileNames) {
-    /**
-     * existing and new packageJSON path
-     */
-    const existingPackageJSON = path.join(compilerObject.options.sourceRoot, compilerObject.entryFile, '..', './package.json');
-    const outputPackageJSON = path.join(compilerObject.options.output.folder, compilerObject.entryFile, '..', './package.json');
-    /**
-     * write the bundle path to packageJson object
-     */
-    let packageJSON = Object.keys(fileNames).reduce((accum, type) => {
-        accum[type === 'UMD' ? 'main' : type.toLowerCase()] = `${getRelativePath(fileNames[type], path.dirname(outputPackageJSON)) }`;
-        return accum;
-    }, {});
-
-    /**
-     * check for existing packageJSON data
-     * then extend the existing data
-     * 
-     */
-    if (fs.existsSync(existingPackageJSON)) {
-        packageJSON = Object.assign(JSON.parse(fs.readFileSync(existingPackageJSON)), packageJSON);
     }
 
-    if (compilerObject.buildOptions.version) {
-        packageJSON.version = compilerObject.buildOptions.version;
-    }
-
-    if (compilerObject.buildOptions.hasStyles) {
-        packageJSON.stylesPath = 'bundles/styles.css';
-    }
-
-    packageJSON.peerDependencies = packageJSON.peerDependencies || {};
-    for (const prop in compilerObject.globalImports) {
-        const globImp = compilerObject.globalImports[prop];
-        if (globImp.name)
-            packageJSON.peerDependencies[globImp.name] = verifyVersion(globImp.version);
-    }
-    exports.writeFile(outputPackageJSON, JSON.stringify(packageJSON, null, 2));
-    saveCompilerData(compilerObject);
+    await exports.writeFile(fileName, script);
 }
 
 /**
@@ -184,10 +380,11 @@ exports.generateBundleData = async function(compilerObject, fileNames) {
  */
 async function buildByType(type, scriptBody, moduleName, compilerObject) {
     const trimmedName = helper.trimPackageName(moduleName);
+    const isModule = (type === PATTERN.MODULE);
     const scriptDefinition = {
         scriptBody,
         header: '',
-        footer: '\n/** generated exports **/\n',
+        footer: createModuleExportation(compilerObject.exports, isModule),
         moduleName: `'${moduleName}'`,
         importsAMD: '',
         importsCJS: '',
@@ -195,56 +392,18 @@ async function buildByType(type, scriptBody, moduleName, compilerObject) {
         args: '',
         buildOptions: JSON.stringify(compilerObject.buildOptions)
     };
-    const imports = Object.keys(compilerObject.globalImports);
-    /**
-     * switch between module types
-     */
-    switch (type) {
-        case (PATTERN.MODULE):
-            if (compilerObject.exports.length) {
-                const _export = compilerObject.exports.map(exp => `${exp.exported}${exp.exported != exp.local ? ' as ' +  exp.local  : ''}`);
-                scriptDefinition.footer = `export { ${_export.join(' , ')} }`;
-            }
 
-            if (imports.length) {
-                scriptDefinition.header = imports.map(key => {
-                    const specifiers = compilerObject.globalImports[key].specifiers;
-                    return `import ${specifiers.length ? ('{ ' + specifiers.join(', ') + '} from ') : '' }'${key}';\n`;
-                }).join('');
-            }
-
-            break;
-        case (PATTERN.UMD):
-            const globalName = `global.${trimmedName.first}`;
-            scriptDefinition.globalName = globalName;
-            scriptDefinition.globalNameSpace = `${trimmedName.nameSpace ? ', '+globalName + '["'+ trimmedName.nameSpace + '"] = '+globalName + '["'+ trimmedName.nameSpace + '"] || {}' : ''}`;
-
-            if (compilerObject.exports.length) {
-                scriptDefinition.footer = compilerObject.exports
-                    .map(exp => `exports.${exp.exported} = ${exp.local};\n`)
-                    .join('');
-            }
-
-            if (imports.length) {
-                const args = imports.reduce((accum, key) => {
-                    const config = compilerObject.globalImports[key];
-                    accum.amd.push(`'${key}'`);
-                    accum.cjs.push(`, require('${key}')`);
-                    accum.global.push(`global.${config.output.first}${config.output.nameSpace ? "['" + config.output.nameSpace + "']" : ''}`);
-                    accum.args.push(`${config.output.arg}`);
-                    return accum;
-                }, {
-                    amd: [],
-                    cjs: [''],
-                    global: [''],
-                    args: ['']
-                });
-                scriptDefinition.importsAMD = args.amd.join(', ');
-                scriptDefinition.importsCJS = args.cjs.join('');
-                scriptDefinition.globalArgs = args.global.join(', ');
-                scriptDefinition.args = args.args.join(', ');
-            }
-            break;
+    const imports = createModuleImportation(compilerObject.globalImports, isModule);
+    if (!isModule) {
+        const globalName = `global.${trimmedName.first}`;
+        scriptDefinition.globalName = globalName;
+        scriptDefinition.globalNameSpace = `${trimmedName.nameSpace ? ', ' + globalName + '["' + trimmedName.nameSpace + '"] = ' + globalName + '["' + trimmedName.nameSpace + '"] || {}' : ''}`;
+        scriptDefinition.importsAMD = imports.amd.join(', ');
+        scriptDefinition.importsCJS = imports.cjs.join('');
+        scriptDefinition.globalArgs = imports.global.join(', ');
+        scriptDefinition.args = imports.args.join(', ');
+    } else {
+        scriptDefinition.header = imports;
     }
 
     const fileName = `${trimmedName.name}-${type.toLowerCase()}`;
@@ -256,156 +415,146 @@ async function buildByType(type, scriptBody, moduleName, compilerObject) {
     /**
      * uglify script if required
      */
-    if (helper.is(PATTERN.UMD, type)) {
+    if (!isModule) {
         const uglifyFilename = `${fileName}.min.js`;
         const uglifiedScript = obfuscate(script, {
             url: `${uglifyFilename}.map`
         });
 
         if (!uglifiedScript.error) {
-            const minFileName = path.join(filePath, `../${uglifyFilename}`);
-            await exports.writeFile(`${outputFolder}/${minFileName}`, uglifiedScript.code);
-            await exports.writeFile(`${outputFolder}/${minFileName}.map`, uglifiedScript.map);
+            const minFilePath = `${outputFolder}/${path.join(filePath, `../${uglifyFilename}`)}`;
+            await exports.writeFile(minFilePath, uglifiedScript.code);
+            await exports.writeFile(`${minFilePath}.map`, uglifiedScript.map);
         } else {
             helper.console.error(`obfuscation failed for this file -> ${fileName}`);
         }
     }
     return filePath;
-};
-
-exports.outputLibraryFiles = async function(compilerObject, scriptBody, moduleName) {
-    const files = {};
-    for (const type of compilerObject.options.output.patterns) {
-        files[type] = await buildByType(type, scriptBody, moduleName, compilerObject);
-    }
-
-    await exports.copyFiles(compilerObject);
-    compilerObject.buildOptions.hasStyles = await writeCss(compilerObject.options, true);
-    await exports.generateBundleData(compilerObject, files);
-};
+}
 
 /**
  * 
- * @param {*} filesToCopy 
+ * @param {*} imports 
+ * @param {*} isModule 
+ * @returns 
  */
-exports.copyFiles = async compilerObject => {
-    if (compilerObject.options.output.copy) {
-        for (const file of compilerObject.options.output.copy) {
-            try {
-                const dest = `${compilerObject.options.output.folder}${file.dest || (path.basename(file.src) + '/')}`;
-                fs.copySync(file.src, dest, {
-                    recursive: true,
-                    overwrite: true
-                });
-            } catch (exception) {}
-        }
+function createModuleImportation(imports, isModule) {
+    const keys = Object.keys(imports);
+    if (isModule) {
+        return keys.map(key => {
+            const specifiers = imports[key].specifiers;
+            return `import ${specifiers.length ? ('{ ' + specifiers.join(', ') + '} from ') : ''}'${key}';\n`;
+        }).join('');
+    } else {
+        return keys.reduce((accum, key) => {
+            const specifier = imports[key];
+            accum.amd.push(`'${key}'`);
+            accum.cjs.push(`, require('${key}')`);
+            accum.global.push(`global.${specifier.output.first}${specifier.output.nameSpace ? "['" + specifier.output.nameSpace + "']" : ''}`);
+            accum.args.push(`${specifier.output.arg}`);
+            return accum;
+        }, {
+            amd: [],
+            cjs: [''],
+            global: [''],
+            args: ['']
+        })
     }
 }
 
-exports.copyAndUpdateAssetsFile = async(filePath, compilerObject) => {
-    const dest = `${compilerObject.options.output.folder}assets${filePath.split('assets')[1]}`;
-    fs.copySync(filePath, dest, {
-        recursive: true,
-        overwrite: true
-    });
-};
+/**
+ * 
+ * @param {*} specifiers 
+ * @param {*} isModule 
+ */
+function createModuleExportation(specifiers, isModule) {
+    if (isModule) {
+        return `export { ${specifiers.map(exp => `${exp.exported}${exp.exported != exp.local ? ' as ' + exp.local : ''}`).join(' , ')} }`;
+    } else {
+        return specifiers.map(exp => `exports.${exp.exported} = ${exp.local};`).join('\n')
+    }
+}
 
 /**
  * 
  * @param {*} compilerObject 
- * @param {*} scriptBody 
- * @param {*} changes 
- */
-exports.outputApplicationFiles = async function(compilerObject, scriptBody, changes) {
-    /**
-     * generate the script file with below conditions
-     * changes to .html .js .json
-     */
-    if (!changes || !changes.isStyles) {
-        const modules = await resolveModules(compilerObject, changes && changes.filePath);
-        const fileName = `${compilerObject.options.output.folder}${compilerObject.entryFile}`;
-        const deps = [scriptBody];
-        const bootStrapFilePath = path.join(compilerObject.options.sourceRoot, compilerObject.entryFile);
-        await extendImportExport(bootStrapFilePath, compilerObject, deps);
-        let script = loadTemplate('default', { entry: deps.join(''), modules });
-        /**
-         * obfuscate code if prod flag is sent
-         */
-        if (compilerObject.buildOptions && compilerObject.buildOptions.prod) {
-            helper.console.write('obfuscating code...');
-            const uglifiedScript = obfuscate(script);
-            if (!uglifiedScript.error) {
-                script = uglifiedScript.code;
-            } else {
-                helper.console.error(`obfuscation failed for this file -> ${fileName}`);
-            }
-        }
-
-        await exports.writeFile(fileName, script);
-    }
-
-    if (!changes) {
-        await exports.copyFiles(compilerObject);
-        await writeCss(compilerObject.options);
-        if (compilerObject.options.output.view) {
-            exports.saveApplicationView(compilerObject);
-        }
-    }
-}
-
-exports.saveApplicationView = async function(compilerObject) {
-    const viewFilePath = path.join(compilerObject.options.sourceRoot, compilerObject.options.output.view);
-    if (fs.existsSync(viewFilePath)) {
-        const files = ['styles.js', compilerObject.entryFile];
-        const html = fs.readFileSync(viewFilePath, 'utf8').replace(/<\/body>/, _ => {
-            return files.map(file => `<script src="./${file}" type="text/javascript"></script>`).join('\n') + '\n' + _;
-        });
-
-        fs.writeFileSync(`${compilerObject.options.output.folder}${compilerObject.options.output.view}`, html);
-    }
-};
-
-/**
- * 
- * @param {*} filePath 
- * @param {*} compilerObject 
+ * @param {*} importItems 
  * @param {*} output 
+ * @param {*} isExternalModule 
+ * @returns 
  */
-async function extendImportExport(filePath, compilerObject, output, isModule) {
-    const metaData = compilerObject.files[filePath];
-    const defaultModuleImports = {};
-    for (const importItem of metaData.imports) {
+function _writeImport(compilerObject, importItems, output, isExternalModule = true) {
+    const defaultModuleImports = { $: {} };
+    const importedCache = {};
+    const isImported = (i, n) => {
+        if (importedCache[i]) {
+            if (importedCache[i].includes(n)) {
+                return true;
+            }
+            importedCache[i].push(n);
+        } else {
+            importedCache[i] = [n];
+        }
+
+        return false;
+    };
+
+    for (const importItem of importItems) {
+        let index = getIndex(importItem.absolutePath);
         if (importItem.default) {
-            if (compilerObject.output.modules.hasOwnProperty(importItem.absolutePath)) {
+            const imported = importItem.specifiers[0].imported;
+            if (compilerObject.output.modules.hasOwnProperty(importItem.absolutePath) && !isImported(index, imported)) {
                 /**
                  * empty module file
                  * files that imports and exports only
                  */
                 if (!output.join('')) {
-                    defaultModuleImports[importItem.specifiers[0].imported] = `__required('${importItem.absolutePath}', 'default')`;
+                    defaultModuleImports[imported] = `__required(${index}, 'default')`;
                 } else {
-                    output.unshift(`var ${importItem.specifiers[0].imported} = __required('${importItem.absolutePath}', 'default');\n`);
+                    output.unshift(`var ${imported} = __required(${index}, 'default');\n`);
                 }
+
             }
         } else if (importItem.nameSpace) {
-            output.unshift(`var ${importItem.specifiers[0].local} = __required('${importItem.absolutePath}'${importItem.noExports?'':",'exports'"});\n`);
+            if (!isImported(index, importItem.specifiers[0].local))
+                output.unshift(`var ${importItem.specifiers[0].local} = __required(${index}${importItem.noExports ? '' : ",'exports'"});\n`);
         } else if (compilerObject.globalImports.hasOwnProperty(importItem.source)) {
             const globalDepMeta = compilerObject.globalImports[importItem.source];
-            // const exportedValues = compilerObject.globalImports.export
-            importItem.specifiers.forEach(specifier => {
-                output.unshift(`var ${specifier.local} = ${globalDepMeta.output.arg}['${specifier.imported}'];\n`);
-            });
-            output.unshift(`var ${globalDepMeta.output.arg} = __required('${globalDepMeta.absolutePath}');\n`);
+            index = getIndex(globalDepMeta.absolutePath);
+            if (!isExternalModule) {
+                defaultModuleImports.$[globalDepMeta.output.arg] = defaultModuleImports.$[globalDepMeta.output.arg] || [];
+                importItem.specifiers.forEach(specifier => {
+                    if (!defaultModuleImports.$[globalDepMeta.output.arg].includes(specifier.imported))
+                        defaultModuleImports.$[globalDepMeta.output.arg].push(specifier.imported);
+                });
+            } else {
+                importItem.specifiers.forEach(specifier => {
+                    if (!isImported(index, specifier.imported))
+                        output.unshift(`var ${specifier.local} = ${globalDepMeta.output.arg}.${specifier.imported};\n`);
+                });
+            }
+
+            output.unshift(`var ${globalDepMeta.output.arg} = __required(${index});\n`);
         } else if (compilerObject.files.hasOwnProperty(importItem.absolutePath)) {
             importItem.specifiers.forEach(specifier => {
-                // make sure script is used before including them
-                output.unshift(`var ${specifier.local} = __required('${importItem.absolutePath}', '${specifier.imported}');\n`);
+                if (!isImported(index, specifier.imported))
+                    output.unshift(`var ${specifier.local} = __required(${index}, '${specifier.imported}');\n`);
             });
         }
     }
 
+    return defaultModuleImports;
+}
+
+/**
+ * 
+ * @param {*} exportedItems 
+ * @param {*} defaultModuleImports 
+ * @param {*} output 
+ */
+function _writeExports(exportedItems, defaultModuleImports, output) {
     // parse exports
-    for (const exp of metaData.exports) {
+    for (const exp of exportedItems) {
         if (helper.is(exp.exported, 'default')) {
             let value = output.pop();
             /**
@@ -420,7 +569,7 @@ async function extendImportExport(filePath, compilerObject, output, isModule) {
             }
         } else {
             if (!defaultModuleImports[exp.local]) {
-                output.unshift(`__required.r(exports, '${exp.exported}', function(){ return ${exp.local};});\n`);
+                output.unshift(`__required.r(exports, '${exp.exported}', () => ${exp.local});\n`);
             } else {
                 output.unshift(`\nexports.${exp.exported} = ${defaultModuleImports[exp.local]};`)
             }
@@ -430,78 +579,192 @@ async function extendImportExport(filePath, compilerObject, output, isModule) {
 
 /**
  * 
- * @param {*} annotations 
+ * @param {*} filePath 
+ * @param {*} compilerObject 
+ * @param {*} output 
+ * @param {*} isBootStrapModule 
+ * @returns 
  */
-function isModule(annotations) {
-    return annotations && (annotations.find(annot => annot.isModule) || {}).fn;
+function extendImportExport(filePath, compilerObject, output, isBootStrapModule) {
+    const metaData = compilerObject.files[filePath];
+    const defaultModuleImports = _writeImport(compilerObject, metaData.imports, output, true);
+    _writeExports(metaData.exports, defaultModuleImports, output);
+    return defaultModuleImports;
 }
 
 /**
  * 
- * @param {*} compilerObject 
- * @param {*} filePath 
- * @param {*} allowBuild 
+ * @param {*} sourceCode 
+ * @param {*} globalImports 
+ * @param {*} delify 
+ * @returns 
  */
-async function generateModuleDeps(compilerObject, filePath, allowBuild) {
-    const req = compilerObject.output.modules[filePath];
-    if (allowBuild) {
-        if (req.type == 'required')
-            req.source.unshift(`module.exports = `);
-        else
-            await extendImportExport(filePath, compilerObject, req.source, isModule(req.annotations));
+function writeGlobalImports(sourceCode, globalImports, delify = true) {
+    if (globalImports) {
+        const delimeter = delify ? ['%', '%'] : ['', ''];
+        for (const ns in globalImports) {
+            globalImports[ns].forEach(dep => {
+                sourceCode = sourceCode.replace(new RegExp(delimeter.join(dep), 'g'), _ => `${ns}.${dep}`)
+            });
+        }
     }
 
-    return `(function(module, exports, __required, global){\n"use strict";\n${req.source.join('')}\n})`
+    return sourceCode;
 }
+
 
 /**
  * 
  * @param {*} compilerObject 
  * @param {*} fileChanged 
+ * @param {*} bootStrapModule 
+ * @returns 
  */
-async function resolveModules(compilerObject, fileChanged) {
+async function resolveModules(compilerObject, fileChanged, bootStrapModulePath) {
     const files = [];
-    for (const filePath in compilerObject.output.modules) {
-        const allowBuild = (!fileChanged || (fileChanged && helper.is(fileChanged, filePath)));
-        //fileNameMapper[filePath] = files.length
-        files.push(`'${filePath}': ${await generateModuleDeps(compilerObject, filePath, allowBuild)}`);
+    const filePaths = Object.keys(compilerObject.output.modules);
+    let req = null;
+    /**
+     * 
+     * @param {*} req 
+     * @param {*} filePath 
+     * @param {*} allowBuild 
+     * @returns 
+     */
+    async function generateModuleDeps(filePath, allowBuild) {
+        const isRequired = (req.type === 'require');
+        if (allowBuild) {
+            let defaultModuleImports = {};
+            if (!isRequired) {
+                defaultModuleImports = extendImportExport(filePath, compilerObject, req.source, (bootStrapModulePath == filePath));
+            } else {
+                req.source.unshift(`module.exports = `)
+            }
+            // rewrite source to string 
+            req.source = writeGlobalImports(req.source.join(''), defaultModuleImports.$);
+        }
+        return `(module, exports, __required, global) => {\n"use strict";\n${req.source}\n}`;
     }
 
-    return `{\n${files.join(',\n')}\n}`;
+
+    for (const filePath of filePaths) {
+        req = compilerObject.output.modules[filePath];
+        if (!req.isLazyLoaded) {
+            const allowBuild = (!fileChanged || (fileChanged && helper.is(fileChanged, filePath)));
+            const sourceCode = await generateModuleDeps(filePath, allowBuild);
+            files.push(`${getIndex(filePath)} : ${sourceCode}`);
+        }
+    }
+
+    return `{${files.join(',\n')}}`;
 }
 
 /**
  * 
- * @param {*} config 
- * @param {*} folder 
+ * @param {*} compilerObject 
+ * @param {*} modulePath 
+ * @param {*} sourceDefinition 
+ * @returns 
  */
-exports.pushStyle = (config, append) => {
-    let result = parseStyle(config);
-    if (!result || !(result.substring(1, result.length - 2))) return;
-    result = helper.stringifyContent(result);
+function extractModuleImpExp(compilerObject, modulePath, sourceDefinition) {
+    const definition = compilerObject.files[modulePath];
+    const declarations = compilerObject[sourceDefinition.annotations[0].type][sourceDefinition.annotations[0].fn];
+    const fnDefinitions = (declarations.services || []).concat(declarations.selectors || []);
+    const cache = { imp: ["@jeli/core"], exp: [] };
+    const ret = { imp: [{ source: "@jeli/core", specifiers: [] }], exp: [], replace: {}, localImp: [], ns: [] };
+    const isLazyLoaded = filePath => compilerObject.files[filePath].lazyLoadModulePath;
+    const pushItem = (item, type, g) => {
+        if (!cache.imp.includes(item.source)) {
+            ret[type].push({ source: item.source, absolutePath: item.absolutePath, specifiers: [] });
+            cache.imp.push(item.source);
+        }
+        // check global imports
+        if (g) {
+            const vi = ret[type].find(c => c.source === item.source);
+            vi.specifiers.push.apply(vi.specifiers, item.specifiers);
+        }
+    }
 
-    if (append) {
-        append.push(result);
-    } else {
-        cssFileHolder.set(config.elementFilePath, { result, config });
+    for (item of definition.imports) {
+        const local = (item.specifiers.length && item.specifiers[0].local);
+        const impIndex = fnDefinitions.indexOf(local);
+        // !local || impIndex > -1
+        if (isLazyLoaded(item.absolutePath)) {
+            ret.exp.splice(impIndex, 0, item);
+            cache.exp.push(item.absolutePath);
+            // check what each file imports 
+            const itemImps = compilerObject.files[item.absolutePath];
+            itemImps.imports.forEach(cItem => {
+                if (!compilerObject.globalImports.hasOwnProperty(cItem.source)) {
+                    if (!isLazyLoaded(cItem.absolutePath)) {
+                        ret.imp.push(cItem);
+                    } else if (!cache.exp.includes(cItem.absolutePath)) {
+                        if (cItem.nameSpace) {
+                            ret.ns.push(cItem);
+                            ret.imp.push(cItem);
+                        } else {
+                            ret.localImp.push(cItem);
+                        }
+                        cache.exp.push(cItem.absolutePath);
+                    }
+                } else {
+                    pushItem(cItem, 'imp', true);
+                }
+            });
+        } else {
+            pushItem(item, 'imp', true);
+        }
+    }
+
+    return ret
+}
+
+/**
+ * 
+ * @param {*} compilerObject 
+ * @param {*} impExp 
+ * @param {*} output 
+ */
+function _writeModuleStream(compilerObject, impExp, output, isNs) {
+    for (const item of impExp) {
+        const req = compilerObject.output.modules[item.absolutePath];
+        if (isNs) {
+            output.push(`${getIndex(item.absolutePath)} : module => {\n${req.source.join('')}\n}`);
+        } else {
+            output.push(req.source.join(''));
+        }
     }
 }
 
 /**
  * 
  * @param {*} compilerObject 
- * @param {*} changes 
+ * @param {*} isProd 
+ * @returns 
  */
-exports.styleChanges = async(compilerObject, changes) => {
-    const elementFilePath = compilerObject.output.styles[changes.filePath];
-    const existingContent = cssFileHolder.get(elementFilePath);
-    this.pushStyle(existingContent ? existingContent.config : {
-        styleUrl: changes.filePath,
-        elementFilePath
-    });
-
-    await writeCss(compilerObject.options);
-};
+async function writeLazyLoadModules(compilerObject, isProd) {
+    var templateParser = getTemplate('lazyload');
+    while (compilerObject.output.lazyLoads.length) {
+        modulePath = compilerObject.output.lazyLoads.pop();
+        const output = [];
+        const sourceDefinition = compilerObject.output.modules[modulePath];
+        try {
+            const impExp = extractModuleImpExp(compilerObject, modulePath, sourceDefinition);
+            const defaultModuleImports = _writeImport(compilerObject, impExp.imp, output, true);
+            const moduleName = sourceDefinition.annotations[0].fn;
+            _writeExports([{ local: moduleName, exported: moduleName }], defaultModuleImports, output);
+            _writeModuleStream(compilerObject, impExp.localImp.concat(impExp.exp), output);
+            output.push(sourceDefinition.source.join(''));
+            const fileName = `${compilerObject.options.output.folder}${getIndex(modulePath)}.js`;
+            const modules = [`${getIndex(modulePath)} : (module, exports, __required, global) => {\n${output.join('')}}`];
+            _writeModuleStream(compilerObject, impExp.ns, modules, true);
+            const sourceCode = writeGlobalImports(`{\n${modules.join(',\n')}\n}`, defaultModuleImports.$);
+            await outputJSFiles(fileName, templateParser({ sourceCode }), isProd);
+        } catch(e) {
+            console.log(`[OutPut] Error generating chunk module ${modulePath}, please try again`);
+        }
+    }
+}
 
 function parseStyle(config) {
     const style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;

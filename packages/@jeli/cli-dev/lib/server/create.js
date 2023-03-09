@@ -11,7 +11,9 @@ const WebSocket = require('faye-websocket');
 function HttpServer(options) {
     let socketClients = [];
     const app = connect();
-    options.before && options.before.length && options.before.forEach(app.use);
+    if (options.before && options.before.length){
+        options.before.forEach(app.use);
+    }
     // set up the sever configs
     serverSetup(options, app);
     this.server = http.createServer(app);

@@ -6,8 +6,9 @@ const glob = require('glob');
 const REQUIRED_ID = 'ϕrequired';
 const supportedFiles = ['.js', '.jli'];
 const _fileCache_ = new Map();
+exports.spinner = null;
+exports.startSpinner = () => this.spinner = ora.start('compiling...')
 
-exports.spinner = ora.start('compiling...');
 /**
  * 
  * @param {*} filePath 
@@ -87,10 +88,9 @@ exports.getRequiredId = (id) => `${REQUIRED_ID}${id ? '[' + id + ']' : ''}`;
 /**
  * 
  * @param {*} dep 
- * @param {*} parentPath 
  * @param {*} resolveOptions 
  */
-exports.resolveDependency = (dep, parentPath, resolveOptions) => {
+exports.resolveDependency = (dep, resolveOptions) => {
     /**
      * dep is a relative path
      */
