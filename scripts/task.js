@@ -32,7 +32,7 @@ async function gitTask(message, tasks) {
     }
 }
 
-async function publishTask(message) {
+async function publishTask(message, targetVersion) {
     logStep(message);
     for (const pkg of packages) {
         await publishPackage(pkg, targetVersion)
