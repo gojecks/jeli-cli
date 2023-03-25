@@ -4,3 +4,4 @@ packages/@jeli/**/dist
 *.lock
 packages/@jeli/compiler/lib/core/html-parser
 test/
+.env

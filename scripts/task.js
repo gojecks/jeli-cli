@@ -4,19 +4,19 @@ const path = require('path')
 const inquirer = require('inquirer');
 const curVersion = fs.readFileSync('./version');
 const chalk = require('chalk');
-const args = require('minimist')(process.argv.slice(2))
+const argvs = require('minimist')(process.argv.slice(2))
 const logStep = msg => console.log(chalk.cyan('\n' + msg))
-const getPkgRoot = pkg => (pkg === 'jeli' ? path.resolve(__dirname, '../../') : path.resolve(__dirname, '../packages/@jeli/' + pkg));
+const getPkgRoot = pkg => (pkg === 'jeli' ? path.resolve(__dirname, '../') : path.resolve(__dirname, '../packages/@jeli/' + pkg));
 const packages = fs.readdirSync(path.resolve(__dirname, '../packages/@jeli'))
     .filter(t => t !== '.DS_Store')
     .concat('jeli');
 
-const runCommander = (function(){
-    let execa = () => {};
+const runCommander = (function () {
+    let execa = () => { };
     import('execa').then(value => execa = value);
     return (bin, args, opts = {}) => {
-        if(!args.dry) return execa.execa(bin, args, { stdio: 'inherit', ...opts })
-        return console.log(chalk.blue(`[dryRun] ${bin} ${args.join(' ')}`), opts)
+        if (!argvs.dry) return execa.execa(bin, args, { stdio: 'inherit', ...opts })
+        return (console.log(chalk.blue(`[dryRun] ${bin} ${args.join(' ')}`), opts), {})
     }
 })();
 
@@ -53,8 +53,8 @@ async function publishTask(message, targetVersion) {
         }
 
         let releaseTag = null
-        if (args.tag) {
-            releaseTag = args.tag
+        if (argvs.tag) {
+            releaseTag = argvs.tag
         } else if (version.includes('alpha')) {
             releaseTag = 'alpha'
         } else if (version.includes('beta')) {
@@ -88,7 +88,7 @@ async function publishTask(message, targetVersion) {
     }
 }
 
-async function updatePackageVersionTask(message,version) {
+async function updatePackageVersionTask(message, version) {
     logStep(message);
     for (const pkg of packages) {
         const pkgPath = path.resolve(getPkgRoot(pkg), 'package.json')
@@ -135,11 +135,12 @@ async function versionPrompt(currentVersion) {
     }
 }
 
-async function updateLockFile(){
-
+async function updateLockFileTask() {
+    logStep('Updating lockfile...');
+    await runCommander('yarn', ['--pure-lockfile']);
 }
 
-async function generateChangeLog(){
+async function generateChangeLog() {
 
 }
 
@@ -147,5 +148,6 @@ module.exports = {
     versionPrompt,
     updatePackageVersionTask,
     publishTask,
-    gitTask
+    gitTask,
+    updateLockFileTask
 }
