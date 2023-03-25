@@ -65,7 +65,7 @@ async function publishTask(message, targetVersion) {
 
         logStep(`Publishing ${publishedName}...`)
         try {
-            await runCommander('npm',
+            await runCommander('yarn',
                 [
                     'publish',
                     ...(releaseTag ? ['--tag', releaseTag] : []),
