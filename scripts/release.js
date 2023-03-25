@@ -9,7 +9,7 @@ async function runTask() {
         ['add', '-A'],
         ['commit', '-m', `release: v${response.version}`]
     ]);
-     await publishTask();
+     await publishTask('Publishing Packages...', response.version);
     await gitTask('Push to git..', [
         ['tag', `v${response.version}`],
         ['push', 'origin', `refs/tags/v${response.version}`],
