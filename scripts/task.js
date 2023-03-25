@@ -14,8 +14,11 @@ const packages = fs.readdirSync(path.resolve(__dirname, '../packages/@jeli'))
 const runCommander = (function(){
     let execa = () => {};
     import('execa').then(value => execa = value);
-    return (bin, args, opts = {}) => execa.execa(bin, args, { stdio: 'inherit', ...opts })
-})()
+    return (bin, args, opts = {}) => {
+        if(!args.dry) return execa.execa(bin, args, { stdio: 'inherit', ...opts })
+        return console.log(chalk.blue(`[dryRun] ${bin} ${args.join(' ')}`), opts)
+    }
+})();
 
 async function gitTask(message, tasks) {
     const { stdout } = await runCommander('git', ['diff'], { stdio: 'pipe' });
@@ -32,16 +35,15 @@ async function gitTask(message, tasks) {
 async function publishTask(message) {
     logStep(message);
     for (const pkg of packages) {
-        await publishPackage(pkg, targetVersion, runIfNotDry)
+        await publishPackage(pkg, targetVersion)
     }
     /**
      * 
      * @param {*} pkgName 
      * @param {*} version 
-     * @param {*} runIfNotDry 
      * @returns 
      */
-    async function publishPackage(pkgName, version, runIfNotDry) {
+    async function publishPackage(pkgName, version) {
         const pkgRoot = getPkgRoot(pkgName)
         const pkgPath = path.resolve(pkgRoot, 'package.json')
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
@@ -61,19 +63,9 @@ async function publishTask(message) {
             releaseTag = 'rc'
         }
 
-        // avoid overwriting tags for v3
-        if (pkgName === 'vue' || pkgName === 'compiler-sfc') {
-            if (releaseTag) {
-                releaseTag = `v2-${releaseTag}`
-            } else {
-                releaseTag = 'v2-latest'
-            }
-        }
-
         logStep(`Publishing ${publishedName}...`)
         try {
-            await runIfNotDry(
-                'pnpm',
+            await runCommander('npm',
                 [
                     'publish',
                     ...(releaseTag ? ['--tag', releaseTag] : []),
@@ -84,10 +76,8 @@ async function publishTask(message) {
                     cwd: pkgRoot,
                     stdio: 'pipe'
                 }
-            )
-            console.log(
-                chalk.green(`Successfully published ${publishedName}@${version}`)
-            )
+            );
+            console.log(chalk.green(`Successfully published ${publishedName}@${version}`))
         } catch (e) {
             if (e.stderr.match(/previously published/)) {
                 console.log(chalk.red(`Skipping already published: ${publishedName}`))
@@ -143,6 +133,14 @@ async function versionPrompt(currentVersion) {
         version,
         bump
     }
+}
+
+async function updateLockFile(){
+
+}
+
+async function generateChangeLog(){
+
 }
 
 module.exports = {

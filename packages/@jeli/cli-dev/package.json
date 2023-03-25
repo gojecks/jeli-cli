@@ -3,6 +3,9 @@
   "version": "1.0.1",
   "description": "Jeli CLI Devtool",
   "main": "index.js",
+  "files": [
+    "*.js"
+  ],
   "scripts": {
     "test": "mocha --reporter spec"
   },

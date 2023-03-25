@@ -1,7 +1,13 @@
 {
   "name": "@jeli/cli",
   "version": "1.0.1",
-  "description": "Command line interface for jeli-js",
+  "description": "Command line interface for jeli",
+  "files": [
+    "bin",
+    "lib",
+    "schemas",
+    "templates"
+  ],
   "scripts": {
     "test": "mocha --reporter spec"
   },

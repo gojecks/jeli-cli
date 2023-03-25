@@ -6,6 +6,9 @@
     "test": "test"
   },
   "main": "lib/index.js",
+  "files": [
+    "*.js"
+  ],
   "scripts": {
     "test": "mocha --reporter spec"
   },
