@@ -1,6 +1,6 @@
 {
   "name": "@jeli/cli-utils",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "main": "./index.js",
   "files": [
     "*.js"
@@ -10,5 +10,13 @@
     "chalk": "^5.2.0",
     "console-clear": "^1.1.1",
     "ora": "^6.3.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gojecks/jeli-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gojecks/jeli-cli/issues"
+  },
+  "homepage": "https://github.com/gojecks/jeli-cli#readme"
 }

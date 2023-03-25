@@ -1,20 +1,21 @@
 {
   "name": "@jeli/compiler",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "jeli-js compiler",
   "directories": {
     "test": "test"
   },
   "main": "lib/index.js",
   "files": [
-    "*.js"
+    "bin",
+    "lib"
   ],
   "scripts": {
     "test": "mocha --reporter spec"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gojecks/jeli-js.git"
+    "url": "git+https://github.com/gojecks/jeli-cli.git"
   },
   "keywords": [
     "jeli",
@@ -23,9 +24,9 @@
   "author": "gojecks",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/gojecks/jeli-js/issues"
+    "url": "https://github.com/gojecks/jeli-cli/issues"
   },
-  "homepage": "https://github.com/gojecks/jeli-js#readme",
+  "homepage": "https://github.com/gojecks/jeli-cli#readme",
   "devDependencies": {
     "chai": "^4.2.0"
   },

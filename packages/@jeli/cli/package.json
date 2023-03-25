@@ -1,6 +1,6 @@
 {
   "name": "@jeli/cli",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Command line interface for jeli",
   "files": [
     "bin",
@@ -16,6 +16,14 @@
     "jeli-cli",
     "jeli"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gojecks/jeli-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gojecks/jeli-cli/issues"
+  },
+  "homepage": "https://github.com/gojecks/jeli-cli#readme",
   "author": "Gojecks",
   "license": "MIT",
   "dependencies": {

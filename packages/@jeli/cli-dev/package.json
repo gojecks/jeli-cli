@@ -1,10 +1,11 @@
 {
   "name": "@jeli/cli-dev",
-  "version": "0.0.2",
-  "description": "Jeli CLI Devtool",
+  "version": "0.0.3",
+  "description": "Jeli cli devtool",
   "main": "index.js",
   "files": [
-    "*.js"
+    "*.js",
+    "lib"
   ],
   "scripts": {
     "test": "mocha --reporter spec"
@@ -28,5 +29,13 @@
     "secure-compare": "3.0.1",
     "chokidar": "3.3.1",
     "faye-websocket": "^0.11.4"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gojecks/jeli-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gojecks/jeli-cli/issues"
+  },
+  "homepage": "https://github.com/gojecks/jeli-cli#readme"
 }
