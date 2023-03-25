@@ -538,7 +538,7 @@ function _writeImport(compilerObject, importItems, output, isExternalModule = tr
         } else if (compilerObject.files.hasOwnProperty(importItem.absolutePath)) {
             importItem.specifiers.forEach(specifier => {
                 if (!isImported(index, specifier.imported))
-                    output.unshift(`var ${specifier.local} = __required(${index}, '${specifier.imported}');\n`);
+                    output.unshift(`var ${specifier.local} = __required(${index}, '${specifier.imported || specifier.local}');\n`);
             });
         }
     }
@@ -668,11 +668,19 @@ async function resolveModules(compilerObject, fileChanged, bootStrapModulePath) 
  */
 function extractModuleImpExp(compilerObject, modulePath, sourceDefinition) {
     const definition = compilerObject.files[modulePath];
+    // get module declarations from jModule attribute
     const declarations = compilerObject[sourceDefinition.annotations[0].type][sourceDefinition.annotations[0].fn];
+    // concat the ctors for jModule
     const fnDefinitions = (declarations.services || []).concat(declarations.selectors || []);
     const cache = { imp: ["@jeli/core"], exp: [] };
     const ret = { imp: [{ source: "@jeli/core", specifiers: [] }], exp: [], replace: {}, localImp: [], ns: [] };
     const isLazyLoaded = filePath => compilerObject.files[filePath].lazyLoadModulePath;
+    /**
+     * 
+     * @param {*} item 
+     * @param {*} type 
+     * @param {*} g 
+     */
     const pushItem = (item, type, g) => {
         if (!cache.imp.includes(item.source)) {
             ret[type].push({ source: item.source, absolutePath: item.absolutePath, specifiers: [] });
@@ -683,7 +691,7 @@ function extractModuleImpExp(compilerObject, modulePath, sourceDefinition) {
             const vi = ret[type].find(c => c.source === item.source);
             vi.specifiers.push.apply(vi.specifiers, item.specifiers);
         }
-    }
+    };
 
     for (item of definition.imports) {
         const local = (item.specifiers.length && item.specifiers[0].local);

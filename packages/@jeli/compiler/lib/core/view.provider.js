@@ -26,32 +26,21 @@ exports.attachViewSelectorProviders = (compilerObject, isLib) => {
     function attachToImportMapping(moduleName, providerName, imports) {
         let outputName = (isLib ? `exports` : moduleName);
         if (compilerObject.jModule.hasOwnProperty(moduleName)) {
-            const filePath = getFilePathByModuleName(moduleName);
+            const filePath = getFilePathByModuleName(providerName);
             if (filePath) {
-                cached[moduleName] = filePath;
-                const fileDefinition = compilerObject.files[filePath];
-                if (!fileDefinition.lazyLoadModulePath) {
-                    const exportedItem = fileDefinition.exports.map(item => item.exported);
-                    if (!exportedItem.includes(providerName)) {
-                        fileDefinition.exports.push({
-                            local: providerName,
-                            exported: providerName
-                        });
-                    }
-                    // push imported item
+                cached[providerName] = filePath;
+                if (!compilerObject.files[filePath].lazyLoadModulePath) {
                     if (!imports.some(imp => imp.absolutePath === filePath)) {
                         imports.push({
                             absolutePath: filePath,
                             specifiers: [{
-                                local: moduleName
-                            }],
-                            nameSpace: true,
-                            noExports: true
+                                local: providerName
+                            }]
                         });
                     }
-                } else {
-                    outputName = '';
+                    
                 }
+                outputName = '';
             }
         } else {
             let name = "";

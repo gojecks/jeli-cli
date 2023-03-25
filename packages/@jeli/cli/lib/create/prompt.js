@@ -1,22 +1,15 @@
 const inquirer = require('inquirer');
 const fs = require('fs-extra');
-const path = require('path');
 const jeliUtils = require('@jeli/cli-utils');
-const getPromptSchema = filePath => JSON.parse(fs.readFileSync(path.join(__dirname, filePath), 'utf8'));
-const promptJson = getPromptSchema('../../schemas/questionnaire-master.json');
+const { getSchema, runConditions } = require('./utils');
+
+const promptJson = getSchema('questionnaire-master.json');
 const promptHelpers = {
     keys: function(key, replacerData) {
         return Object.keys(replacerData[key] || {});
     },
     concat: function(value, replacer) {
-        return value.reduce(function(accum, key) {
-            if (replacer.hasOwnProperty(key)) {
-                accum += replacer[key];
-            } else {
-                accum += key;
-            }
-            return accum;
-        }, '')
+        return (value || '').replace(/\{\{(.*)\}\}/g, (_, k) => (replacer[k] || ''))
     }
 };
 
@@ -44,19 +37,11 @@ const validators = {
     }
 };
 
-const isValid = (condition, state) => {
-    return condition.some(quest => {
-        const keys = Object.keys(quest);
-        return keys.filter(key => {
-            return jeliUtils.is(state[key], quest[key])
-        }).length == keys.length;
-    });
-}
 
 exports.answers = async(questions, projectData) => {
     for (const question of questions) {
-        if (!question.cond || isValid(question.cond, projectData)) {
-            const answer = await this.promptStatic(question);
+        if (runConditions(question.cond, projectData)) {
+            const answer = await this.promptStatic(question, projectData);
             if (question.validate && validators.hasOwnProperty(question.validate.fn)) {
                 var args = question.validate.args.map(key => {
                     // symbol for answers
@@ -81,7 +66,7 @@ exports.answers = async(questions, projectData) => {
  */
 exports.projectPrompt = async(jeliWorkSpace, name, targetDir, projectExists, availablePkgMgr) => {
     const dirExist = fs.existsSync(targetDir);
-    const projectJsonPrompt = getPromptSchema('../../schemas/create-new.json');
+    const projectJsonPrompt = getSchema('create-new.json');
     const projectData = await this.answers(projectJsonPrompt, { name, targetDir, availablePkgMgr, dirExist, projectExists, jeliWorkSpace });
     projectData.year = new Date().getFullYear();
     projectData.selector = `${projectData.prefix}-${projectData.name}`;

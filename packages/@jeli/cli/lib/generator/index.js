@@ -1,6 +1,6 @@
 const path = require('path');
 const jeliUtils = require('@jeli/cli-utils');
-const { getJeliJson, validateProjectAndWorkSpace, getTemplatePath } = require('../create/utils');
+const { getJeliJson, validateProjectAndWorkSpace } = require('../create/utils');
 const GeneratorInstance = require('./instance');
 const supportedTypes = { e: "element", s: "service", d: "directive", m: "module", p: "pipe", r: "router", c: "combination" };
 
@@ -48,13 +48,13 @@ async function ComponentGenerator(componentType, pathName, options) {
      * initializer
      */
     try {
-        type = type.split('').sort((a) => {
+        const schema = type.split('').sort((a) => {
             if (a == 'm') {
                 return 0
             }
             return -1;
-        }).map(ctype => supportedTypes[ctype]);
-        await GeneratorInstance.addComponents(type, targetDir, projectConfig);
+        }).map(ctype => ({type: supportedTypes[ctype]}));
+        await GeneratorInstance.addComponents(schema, targetDir, projectConfig);
     } catch (e) {
         throw e;
     }

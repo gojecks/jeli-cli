@@ -1,0 +1,24 @@
+[{
+    "type":"element",
+    "values": {
+        "scriptcontent": "this.appName = '[name]';",
+        "selector": "[name]",
+        "styling": "[style]",
+        "viewContent": "<h1>Welcome ${appName},</h1>\n<h2>Application works!!</h2>"
+    }
+},
+{
+    "type": "router",
+    "condition": [{
+        "router": true
+    }]
+},
+{
+    "type": "module",
+    "values": {
+        "rootelement": ",\n\trootElement: [fnname]Element"
+    }
+},
+{
+    "type": "main"
+}]

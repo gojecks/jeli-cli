@@ -154,6 +154,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
      * @param {*} childAst 
      */
     function attachContentChildren(parentAstNode, childAst) {
+        if(!resolvedElements[parentAstNode.name]) return;
         const query = resolvedElements[parentAstNode.name].query;
         const isStructural = helper.is(childAst.type, 8);
         const matched = matchViewQueryFromAstNode(query.child, isStructural ? childAst.templates[childAst.text] : childAst);

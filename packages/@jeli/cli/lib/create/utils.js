@@ -15,7 +15,18 @@ exports.getJeliJson = targetDir => {
     return null;
 };
 
-exports.updateJeliSchema = async(projectData, dir) => {
+exports.getSchema = (fileName, data) => {
+    const filePath = path.join(__dirname, '../../schemas', fileName);
+    let content = fs.readFileSync(filePath, 'utf8');
+    if (!content) return null;
+    if (data) {
+        content = this.templateParser(content, data);
+    }
+
+    return JSON.parse(content);
+};
+
+exports.updateJeliSchema = async (projectData, dir) => {
     const json = this.getJeliJson(dir);
     if (json) {
         /**
@@ -49,6 +60,7 @@ exports.updateJeliSchema = async(projectData, dir) => {
                     }
                 }
             };
+
             json.projects[projectData.name].output = {
                 folder: "dist/",
                 view: "index.html",
@@ -84,7 +96,7 @@ exports.updateJeliSchema = async(projectData, dir) => {
     }
 };
 
-exports.updatePackageJSON = async(projectData) => {
+exports.updatePackageJSON = async (projectData) => {
     const filePath = path.join(projectData.targetDir, 'package.json');
     const json = JSON.parse(fs.readFileSync(filePath), 'utf8');
     if (projectData.doc) {
@@ -93,14 +105,14 @@ exports.updatePackageJSON = async(projectData) => {
     }
 
     if (projectData.router) {
-        json.dependencies["@jeli/router"] = "^0.0.1";
+        json.dependencies["@jeli/router"] = "^1.0.0";
     }
 
     json.name = projectData.name;
     fs.writeFileSync(filePath, JSON.stringify(json, null, 2));
 };
 
-exports.getDir = async(...args) => {
+exports.getDir = async (...args) => {
     let targetDir = "";
     args.forEach(projectRoot => {
         targetDir = path.join(targetDir, projectRoot);
@@ -117,25 +129,15 @@ exports.getDir = async(...args) => {
  * 
  * @param {*} name 
  * @param {*} targetDir 
- * @param {*} variants
+ * @param {*} variants 
  */
-exports.copyTemplate = async(name, targetDir, variants) => {
+exports.copyTemplate = async (name, targetDir, variants) => {
     const dir = await this.getDir(targetDir, name);
     variants.forEach(variant => {
         jeliUtils.console.write(`copying ${variant} templates`);
         const templatePath = this.getTemplatePath(variant);
         if (fs.existsSync(templatePath)) {
-            shell.cp('-R', `${templatePath}/*`, dir);
-            /**
-             * shell doesn't copy .fileName files
-             * we have to copy the .fileNames manually
-             */
-            if (jeliUtils.is(variant, 'default')) {
-                ['.esdoc.json', '.eslintrc.json', '.gitignore'].forEach(fileName => {
-                    jeliUtils.console.write(`creating ${fileName}`);
-                    shell.cp(`${templatePath}/${fileName}`, dir);
-                });
-            }
+            fs.copySync(templatePath, dir);
         }
     });
 };
@@ -174,7 +176,7 @@ exports.gitInit = async projectData => {
     }
 };
 
-const run = async(cmd, args, cwd) => {
+const run = async (cmd, args, cwd) => {
     return execa(cmd, args, { cwd })
 };
 
@@ -190,4 +192,14 @@ exports.validateProjectAndWorkSpace = (jeliJson, projectName) => {
     } else if (!jeliJson.projects.hasOwnProperty(projectName)) {
         jeliUtils.abort(`project ${jeliUtils.colors.cyan(projectName)} does not exists in this workspace.`);
     }
+}
+
+exports.runConditions = (condition, state) => {
+    if(!condition) return true;
+    return condition.some(quest => {
+        const keys = Object.keys(quest);
+        return keys.filter(key => {
+            return jeliUtils.is(state[key], quest[key])
+        }).length == keys.length;
+    });
 }

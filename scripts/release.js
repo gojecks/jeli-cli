@@ -1,28 +1,20 @@
-const execa = require('execa')
-const semver = require('semver')
-const minimist = require('minimist')
-const { updateDeps, prompt } = require('./bumpver');
-const fs = require('fs');
-const curVersion = fs.readFileSync('./version');
+const { versionPrompt, updatePackageVersionTask, publishTask, gitTask } = require('./task');
+const currentVersion = require('../package.json').version
 
-(async() => {
-    console.log(`Current version: ${curVersion}`)
-    const response = await prompt(curVersion);
-    if (response.yes) {
-        await updateDeps(response.version);
-        // try {
-        //     await execa('git', ['add', '-A'], { stdio: 'inherit' })
-        //     await execa('git', ['commit', '-m', 'chore: pre release sync'], { stdio: 'inherit' })
-        // } catch (e) {}
-    }
+async function runTask() {
+    const response = await versionPrompt(currentVersion);
+    if (!response.confirmRelease) return;
+    await updatePackageVersionTask('Updating package versions...', response.version);
+    await gitTask('commit to git..', [
+        ['add', '-A'],
+        ['commit', '-m', `release: v${response.version}`]
+    ]);
+    // await publishTask();
+    // await gitTask('Push to git..', [
+    //     ['tag', `v${response.version}`],
+    //     ['push', 'origin', `refs/tags/v${response.version}`],
+    //     ['push']
+    // ]);
+}
 
-    let distTag = 'latest';
-    if (response.bump === 'prerelease' || semver.prerelease(response.version)) {
-        distTag = 'next'
-    }
-
-    // publish all
-})().catch(err => {
-    console.error(err)
-    process.exit(1)
-})
+runTask();

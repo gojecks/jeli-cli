@@ -1,45 +1,44 @@
 {
-    "name": "@jeli/compiler",
-    "version": "1.0.0",
-    "description": "jeli-js compiler",
-    "directories": {
-        "test": "test"
-    },
-    "main": "lib/index.js",
-    "scripts": {
-        "test": "mocha --reporter spec"
-    },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/gojecks/jeli-js.git"
-    },
-    "keywords": [
-        "jeli",
-        "compiler"
-    ],
-    "author": "gojecks",
-    "license": "MIT",
-    "bugs": {
-        "url": "https://github.com/gojecks/jeli-js/issues"
-    },
-    "homepage": "https://github.com/gojecks/jeli-js#readme",
-    "devDependencies": {
-        "chai": "^4.2.0"
-    },
-    "dependencies": {
-        "esprima": "^4.0.1",
-        "html-dom-parser": "^3.1.2",
-        "escodegen": "^2.0.0",
-        "uglify-js": "^3.6.0",
-        "lodash.template": "^4.5.0",
-        "@jeli/cli-utils": "1.0.0",
-        "css": "^3.0.0",
-        "node-sass": "^7.0.3"
-    },
-    "bin": {
-        "jeli-compiler": "bin/compiler.js"
-    },
-    "engines": {
-        "node": ">=8.9"
-    }
+  "name": "@jeli/compiler",
+  "version": "1.0.1",
+  "description": "jeli-js compiler",
+  "directories": {
+    "test": "test"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "mocha --reporter spec"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gojecks/jeli-js.git"
+  },
+  "keywords": [
+    "jeli",
+    "compiler"
+  ],
+  "author": "gojecks",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/gojecks/jeli-js/issues"
+  },
+  "homepage": "https://github.com/gojecks/jeli-js#readme",
+  "devDependencies": {
+    "chai": "^4.2.0"
+  },
+  "dependencies": {
+    "esprima": "^4.0.1",
+    "html-dom-parser": "^3.1.6",
+    "escodegen": "^2.0.0",
+    "uglify-js": "^3.17.4",
+    "lodash.template": "^4.5.0",
+    "css": "^3.0.0",
+    "node-sass": "^8.0.0"
+  },
+  "bin": {
+    "jeli-compiler": "bin/compiler.js"
+  },
+  "engines": {
+    "node": ">=8.9"
+  }
 }

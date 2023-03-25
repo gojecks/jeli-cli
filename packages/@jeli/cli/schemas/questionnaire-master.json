@@ -88,5 +88,15 @@
             { "name": "Overwrite", "value": 2 },
             { "name": "Cancel", "value": 0 }
         ]
+    }],
+    "gitInit": [{
+        "name": "initGit",
+        "type": "list",
+        "message": "Git init",
+        "default": true,
+        "choices": [
+            { "name": "yes", "value": true },
+            { "name": "no", "value": false }
+        ]
     }]
 }

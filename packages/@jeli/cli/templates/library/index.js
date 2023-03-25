@@ -1,4 +1,3 @@
 /**
- * This is the entry file for jeli
+ * This is the entry file for jeli lib
  */
-export * from './public.api';

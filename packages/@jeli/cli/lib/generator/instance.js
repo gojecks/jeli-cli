@@ -7,17 +7,18 @@ const {
     updateJeliSchema,
     replaceVariablesInTemplate,
     updatePackageJSON,
-    gitInit,
     getDir,
     updateContent,
-    templateParser
+    getSchema,
+    runConditions
 } = require('../create/utils');
+const { install } = require('../utils/packageManager');
 
 class GeneratorInstance {
     constructor(type, options) {
         this.options = options;
         this.name = path.basename(options.targetDir);
-        this.fnName = jeliUtils.pascalCase(options.name || this.name);
+        this.fnName = options.name || jeliUtils.pascalCase(this.name);
         this.dir = path.dirname(options.targetDir);
         this.output = ['.js'];
         this.setTemplatePath(type);
@@ -115,7 +116,7 @@ class GeneratorInstance {
 
     async main() {
         this.setReplacerContent();
-        updateContent(this.templatePath, this.replacerData, `${this.options.projectConfig.targetDir}/main.js`);
+        updateContent(this.templatePath, this.replacerData, path.resolve(this.options.targetDir, '../main.js'));
     }
 
     addModuleParams(name, fileName) {
@@ -137,64 +138,48 @@ class GeneratorInstance {
      * @param {*} targetDir 
      * @param {*} projectConfig 
      */
-    static addComponents = async(components, targetDir, projectConfig) => {
+    static addComponents = async (components, targetDir, projectConfig) => {
+        if (!components) throw new Error(`Invalid generator schema, please try again`);
         const generators = new GeneratorInstance(null, {
             targetDir,
-            projectConfig
+            projectConfig,
+            name: projectConfig.fnname
         });
 
-        components.forEach(ctype => {
-            jeliUtils.console.write(`creating ${ctype} ...`);
-            generators.setTemplatePath(ctype);
-            generators.throwErrorIfExists();
-            generators[ctype]();
-            jeliUtils.console.success(generators.output.map(ext => `created ${generators.replacerData.filename}${ext}`).join('\n'))
+        components.forEach(config => {
+            if (runConditions(config.condition, projectConfig)) {
+                generators.setTemplatePath(config.type);
+                generators.throwErrorIfExists();
+                generators[config.type](config.values);
+                jeliUtils.console.success(generators.output.map(ext => `created ${generators.replacerData.filename}${ext}`).join('\n'))
+            }
         });
     }
 
-    static addProject = async projectData => {
+    static addProject = async (projectData, fromMain) => {
         try {
-            if (!projectData.dirExist) {
+            if (!projectData.dirExist && !fromMain) {
                 projectData.sourceroot = projectData.name;
             }
-
-            const targetDir = await getDir(projectData.targetDir, projectData.prefix);
-            await copyTemplate('', projectData.targetDir, [projectData.variant]);
+            const sourcePath = (projectData.sourcePath || projectData.targetDir);
+            const targetDir = await getDir(sourcePath, projectData.prefix);
+            await copyTemplate('', sourcePath, [projectData.variant]);
+            // copy misc files for nested projects
+            if (!fromMain) {
+                await copyTemplate('', sourcePath, ['misc']);
+            }
 
             /**
              * only generate components if project variant is applicationn
              */
             if (!jeliUtils.is(projectData.variant, 'library')) {
-                const generators = new GeneratorInstance('element', {
-                    projectConfig: projectData,
-                    targetDir,
-                    name: projectData.name
-                });
-                // generate base Element
-                await generators.element({
-                    scriptcontent: `this.appName = '${projectData.name}';`,
-                    selector: projectData.name,
-                    styling: projectData.style || 'scss',
-                    viewContent: '<h1>Welcome ${appName},</h1>\n<h2>Application works!!</h2>'
-                });
-
-                if (projectData.router) {
-                    generators.setTemplatePath('router');
-                    await generators.router();
-                }
-
-                generators.setTemplatePath('module');
-                generators.module({
-                    rootelement: `,\n\trootElement: ${generators.fnName}Element`
-                });
-                /**
-                 * create the entry files
-                 */
-                generators.setTemplatePath('main');
-                await generators.main();
+                const name = fromMain ? projectData.name : null;
+                if (fromMain) projectData.fnname = jeliUtils.pascalCase(name);
+                const applicationSchema = getSchema('application.json', projectData);
+                GeneratorInstance.addComponents(applicationSchema, targetDir, projectData);
             }
 
-            await updateJeliSchema(projectData, path.resolve(projectData.targetDir, '..'));
+            await updateJeliSchema(projectData, path.resolve(projectData.targetDir, !fromMain ? '..': ''));
             await replaceVariablesInTemplate(projectData);
         } catch (e) {
             jeliUtils.console.error(e);
@@ -204,14 +189,12 @@ class GeneratorInstance {
 
     static createProject = async projectData => {
         try {
-            jeliUtils.console.write(`✨Creating project in ${jeliUtils.colors.yellow(projectData.targetDir)}.`);
-            const targetDir = await getDir(projectData.targetDir, projectData.sourceroot);
+            jeliUtils.console.write(`✨Creating project in ${jeliUtils.colors.yellow(projectData.targetDir)}`);
+            projectData.sourcePath = await getDir(projectData.targetDir, projectData.sourceroot);
             await copyTemplate('', projectData.targetDir, ['default']);
-            await copyTemplate('', targetDir, [projectData.variant]);
-            await updateJeliSchema(projectData, projectData.targetDir);
+            await GeneratorInstance.addProject(projectData, true);
             await updatePackageJSON(projectData);
-            await replaceVariablesInTemplate(projectData);
-            await gitInit(projectData);
+            await install(projectData.packagemanager, projectData.targetDir);
         } catch (e) {
             jeliUtils.console.error(e);
             jeliUtils.console.error(`unable to generate ${jeliUtils.colors.cyan(projectData.variant)}`);

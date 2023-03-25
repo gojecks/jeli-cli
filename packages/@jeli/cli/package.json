@@ -1,45 +1,43 @@
 {
-    "name": "@jeli/cli",
-    "version": "1.0.0",
-    "description": "Command line interface for jeli-js",
-    "scripts": {
-        "test": "mocha --reporter spec"
-    },
-    "keywords": [
-        "jeli-js",
-        "jeli-cli",
-        "jeli"
-    ],
-    "author": "Gojecks",
-    "license": "MIT",
-    "dependencies": {
-        "atob": "^2.0.3",
-        "body-parser": "^1.18.2",
-        "btoa": "^1.1.2",
-        "clear": "0.0.1",
-        "clui": "^0.3.6",
-        "figlet": "^1.2.0",
-        "inquirer": "^8.0.0",
-        "lodash": "^4.17.4",
-        "minimist": "^1.2.0",
-        "preferences": "^1.0.2",
-        "touch": "^3.1.0",
-        "jsonfile": "^3.0.0",
-        "fs-extra": "~2.0.0",
-        "leven": "^3.1.0",
-        "semver": "^7.2.2",
-        "validate-npm-package-name": "^3.0.0",
-        "commander": "^2.20.3",
-        "shelljs": "0.8.3",
-        "envinfo": "^7.5.0",
-        "execa": "^4.0.0",
-        "@jeli/cli-dev": "1.0.0",
-        "@jeli/cli-utils": "1.0.0"
-    },
-    "bin": {
-        "jeli": "bin/jeli.js"
-    },
-    "engines": {
-        "node": ">=8.9"
-    }
+  "name": "@jeli/cli",
+  "version": "1.0.1",
+  "description": "Command line interface for jeli-js",
+  "scripts": {
+    "test": "mocha --reporter spec"
+  },
+  "keywords": [
+    "jeli-js",
+    "jeli-cli",
+    "jeli"
+  ],
+  "author": "Gojecks",
+  "license": "MIT",
+  "dependencies": {
+    "atob": "^2.1.2",
+    "body-parser": "^1.20.2",
+    "btoa": "^1.2.1",
+    "clear": "0.0.1",
+    "clui": "^0.3.6",
+    "figlet": "^1.5.2",
+    "inquirer": "^9.1.5",
+    "lodash": "^4.17.21",
+    "minimist": "^1.2.8",
+    "preferences": "^2.0.2",
+    "touch": "^3.1.0",
+    "jsonfile": "^6.1.0",
+    "fs-extra": "~2.0.0",
+    "leven": "^4.0.0",
+    "semver": "^7.3.8",
+    "validate-npm-package-name": "^5.0.0",
+    "commander": "^10.0.0",
+    "shelljs": "0.8.3",
+    "envinfo": "^7.8.1",
+    "execa": "^7.1.1"
+  },
+  "bin": {
+    "jeli": "bin/jeli.js"
+  },
+  "engines": {
+    "node": ">=8.9"
+  }
 }

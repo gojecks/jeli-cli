@@ -31,7 +31,7 @@
         "extend": [{
             "props": "default",
             "fn": "concat",
-            "args": ["name", "-src"]
+            "args": "{{name}}-src"
         }]
     },
     {
@@ -50,11 +50,17 @@
             "dirOption": 2,
             "projectExists": true
         }],
-        "question": "packageManager",
+        "promptId": "packageManager",
         "extend": [{
             "props": "choices",
             "fn": "keys",
             "args": "availablePkgMgr"
+        }]
+    },
+    {
+        "promptId": "gitInit",
+        "cond": [{
+            "jeliWorkSpace": false
         }]
     }
 ]
