@@ -3,7 +3,7 @@ const path = require('path');
 const validateProjectName = require('validate-npm-package-name');
 const jeliUtils = require('@jeli/cli-utils');
 const { projectPrompt } = require('./prompt');
-const { getPackageManagerList} = require('../utils/packageManager');
+const { getPackageManagerList, install} = require('../utils/packageManager');
 const { isJeliProject, getJeliJson, gitInit } = require('./utils');
 const GeneratorInstance = require('../generator/instance');
 
@@ -15,18 +15,6 @@ const projectNameValidation = name => {
         validatorResult.warnings && validatorResult.warnings.forEach(warn => jeliUtils.console.error(jeliUtils.colors.red.dim(`Warning: ${warn}`)));
         jeliUtils.abort('');
     }
-}
-
-/**
- * 
- * @param {*} jeliWorkSpace 
- * @param {*} blankWorkSpace 
- * @param {*} name 
- * @param {*} targetDir 
- * @param {*} projecttExists 
- */
-const coreCreate = async(jeliWorkSpace, blankWorkSpace, name, targetDir, projectExists) => {
-
 }
 
 async function create(projectName, options) {
@@ -78,6 +66,7 @@ async function create(projectName, options) {
     const projectData = await projectPrompt(isJeliProjectWorkSpace, name, targetDir, isProjectExists, availablePkgMgr.Binaries);
     if ((!isJeliProjectWorkSpace || (isJeliProjectWorkSpace && projectData.dirOption == 2) && blankWorkSpace)) {
         await GeneratorInstance.createProject(projectData);
+        await install(projectData.packagemanager, projectData.targetDir);
         await gitInit(projectData);
     } else {
         projectData.packagemanager = json.cli.packageManager;

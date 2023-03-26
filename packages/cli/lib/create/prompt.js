@@ -1,4 +1,4 @@
-const inquirer = require('inquirer');
+const inquirerAsync = import('inquirer');
 const fs = require('fs-extra');
 const jeliUtils = require('@jeli/cli-utils');
 const { getSchema, runConditions } = require('./utils');
@@ -36,6 +36,7 @@ const validators = {
         }
     }
 };
+
 
 
 exports.answers = async(questions, projectData) => {
@@ -86,9 +87,10 @@ exports.promptStatic = async(questionMapper, replacerData = {}) => {
         });
     }
 
-    return await inquirer.prompt(questions);
+    return await this.prompt(questions);
 }
 
 exports.prompt = async questions => {
-    return await inquirer.prompt(questions);
+    const inquirer = await inquirerAsync;
+    return await inquirer.default.prompt(questions);
 }

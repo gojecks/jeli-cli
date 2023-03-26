@@ -2,7 +2,7 @@
 
 const semver = require('semver')
 const requiredVersion = require('../package.json').engines.node
-const leven = require('leven')
+const levenAsync = import('leven')
 const jeliUtils = require('@jeli/cli-utils');
 
 function checkNodeVersion(wanted, id) {
@@ -27,8 +27,7 @@ program
     .description('create a new project powered by jeli-cli')
     .option('--force', 'Overwrite target directory if it exists')
     .option('-x, --proxy', 'Use specified proxy when creating project.')
-    .action((name, cmd) => {
-        const options = jeliUtils.cleanArgs(cmd)
+    .action((name, options) => {
         if (minimist(process.argv.slice(3))._.length > 1) {
             jeliUtils.console.warn('\n Info: You provided more than one argument. The first one will be used as the app\'s name, the rest are ignored.')
         }
@@ -43,8 +42,7 @@ program
     .option('-v, --version <version>', 'version number to be built')
     .option('--configuration <configiration>', 'choose configuration to compile with')
     .option('--prod', 'build application for production')
-    .action((entry, cmd) => {
-        const args = jeliUtils.cleanArgs(cmd);
+    .action((entry, args) => {
         cliCommander('build', '@jeli/cli-dev').build(entry, {
             configuration: args.configuration,
             buildOptions: jeliUtils.extractArgs(['cwd', 'prod', 'version'], args)
@@ -67,8 +65,7 @@ program
     .option('--password <password>', 'Password for basic authentication [none] \n Can also be specified with the env variable NODE_HTTP_SERVER_PASSWORD')
     .option('-t <timeout>', 'Connections timeout in seconds [120], e.g. -t60 for 1 minute. \n To disable timeout, use -t0')
     .option('--configuration <configiration>', 'choose configuration to compile with')
-    .action((entry, cmd) => {
-        const args = jeliUtils.cleanArgs(cmd);
+    .action((entry, args) => {
         const root = `./node_modules/.jeliCache/serve/${entry || 'main'}/`;
         const serverOptions = jeliUtils.extractArgs('ssl,cert,key,proxy,username,password,timeout,gzip,port,host,open'.split(','), args);
         cliCommander('serve', '@jeli/cli-dev').serve(entry, {
@@ -102,7 +99,7 @@ program
     .command('remove <project-name>')
     .description('removes project from workspace')
     .action((entry, cmd) => {
-        require('../lib/remove')(entry, jeliUtils.cleanArgs(cmd));
+        require('../lib/remove')(entry, cmd);
     })
 
 program
@@ -111,7 +108,7 @@ program
     .option('-c, --components <components>', 'Specify list of components to create. e.g [mers] = module,element,router,service')
     .description('generate a new (Element|Directive|Service|Module). Enter type c to generate multiple components')
     .action((type, pathName, cmd) => {
-        require('../lib/generator')(type.toLowerCase(), pathName, jeliUtils.cleanArgs(cmd))
+        require('../lib/generator')(type.toLowerCase(), pathName, cmd)
     })
 
 // output help information on unknown commands
@@ -125,28 +122,28 @@ program
 
 // add some useful info on help
 program.on('--help', () => {
-            jeliUtils.console.write(`\n  Run ${jeliUtils.colors.cyan(`jeli <command> --help`)} for detailed usage of given command.\n`);
+    jeliUtils.console.write(`\n  Run ${jeliUtils.colors.cyan(`jeli <command> --help`)} for detailed usage of given command.\n`);
 })
 
 program.commands.forEach(c => c.on('--help', () => jeliUtils.console.write()));
 program.parse(process.argv)
 if (!process.argv.slice(2).length) {
-  program.outputHelp();
+    program.outputHelp();
 }
 
-function suggestCommands (unknownCommand) {
-  const availableCommands = program.commands.map(cmd => cmd._name)
+async function suggestCommands(unknownCommand) {
+    const leven = await levenAsync;
+    const availableCommands = program.commands.map(cmd => cmd._name)
+    let suggestion
 
-  let suggestion
+    availableCommands.forEach(cmd => {
+        const isBestMatch = leven.default(cmd, unknownCommand) < leven.default(suggestion || '', unknownCommand)
+        if (leven.default(cmd, unknownCommand) < 3 && isBestMatch) {
+            suggestion = cmd
+        }
+    })
 
-  availableCommands.forEach(cmd => {
-    const isBestMatch = leven(cmd, unknownCommand) < leven(suggestion || '', unknownCommand)
-    if (leven(cmd, unknownCommand) < 3 && isBestMatch) {
-      suggestion = cmd
+    if (suggestion) {
+        jeliUtils.console.error(`Did you mean ${jeliUtils.colors.yellow(suggestion)}?`);
     }
-  })
-
-  if (suggestion) {
-    jeliUtils.console.error(`Did you mean ${jeliUtils.colors.yellow(suggestion)}?`);
-  }
 }

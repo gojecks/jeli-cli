@@ -1,6 +1,6 @@
 {
   "name": "@jeli/cli",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "description": "Command line interface for jeli",
   "files": [
     "bin",
@@ -46,7 +46,8 @@
     "commander": "^10.0.0",
     "shelljs": "0.8.3",
     "envinfo": "^7.8.1",
-    "execa": "^7.1.1"
+    "execa": "^7.1.1",
+    "@jeli/cli-utils": "latest"
   },
   "bin": {
     "jeli": "bin/jeli.js"

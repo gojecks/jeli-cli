@@ -1,19 +1,21 @@
-const { versionPrompt, updatePackageVersionTask, publishTask, gitTask, updateLockFileTask } = require('./task');
-const currentVersion = require('../package.json').version
+const ReleaseTaskRunner = require('./task');
+const path = require('path');
 
 async function runTask() {
-    const response = await versionPrompt(currentVersion);
-    if (!response.confirmRelease) return;
-    await updatePackageVersionTask('Updating package versions...', response.version);
-    await updateLockFileTask()
-    await gitTask('commit git changes ..', [
+    const taskRunner = new ReleaseTaskRunner(path.resolve(__dirname, '../packages'));
+    const confirmRelease = await taskRunner.versionPrompt();
+    if (!confirmRelease) return;
+    await taskRunner.updatePackageVersionTask('Updating package versions...');
+    // await taskRunner.updateDeps();
+    await taskRunner.updateLockFileTask()
+    await taskRunner.gitCommitTask('commit git changes ..', [
         ['add', '-A'],
-        ['commit', '-m', `release: v${response.version}`]
+        ['commit', '-m', `release: v${taskRunner.targetVersion}`]
     ]);
-     await publishTask('Publishing Packages...', response.version);
-    await gitTask('Push to git..', [
-        ['tag', `v${response.version}`],
-        ['push', 'origin', `refs/tags/v${response.version}`],
+    await taskRunner.publishTask('Publishing Packages...', taskRunner.targetVersion);
+    await taskRunner.gitPushTask('Push to git..', [
+        ['tag', `v${taskRunner.targetVersion}`],
+        ['push', 'origin', `refs/tags/v${taskRunner.targetVersion}`],
         ['push']
     ]);
 }

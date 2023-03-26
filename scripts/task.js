@@ -2,152 +2,298 @@ const semver = require('semver')
 const fs = require('fs');
 const path = require('path')
 const inquirer = require('inquirer');
-const curVersion = fs.readFileSync('./version');
 const chalk = require('chalk');
 const argvs = require('minimist')(process.argv.slice(2))
+const request = require('request-promise-native');
+const readline = require('readline');
 const logStep = msg => console.log(chalk.cyan('\n' + msg))
-const getPkgRoot = pkg => (pkg === 'jeli' ? path.resolve(__dirname, '../') : path.resolve(__dirname, '../packages/@jeli/' + pkg));
-const packages = fs.readdirSync(path.resolve(__dirname, '../packages/@jeli'))
-    .filter(t => t !== '.DS_Store')
-    .concat('jeli');
 
-const runCommander = (function () {
-    let execa = () => { };
-    import('execa').then(value => execa = value);
-    return (bin, args, opts = {}) => {
-        if (!argvs.dry) return execa.execa(bin, args, { stdio: 'inherit', ...opts })
-        return (console.log(chalk.blue(`[dryRun] ${bin} ${args.join(' ')}`), opts), {})
+module.exports = class ReleaseTaskRunner {
+    remoteCache = {};
+    pendingUpdate = {};
+    constructor(dirPath = '', pkgManager = 'yarn', defaultPkg = 'jeli') {
+        this.pkgManager = pkgManager;
+        this.dirPath = dirPath;
+        this.defaultPkg = defaultPkg;
+        this.currentVersion = require(path.resolve(dirPath, '../package.json')).version;
+        this.packages = fs.readdirSync(dirPath)
+            .filter(t => t !== '.DS_Store')
+            .concat(defaultPkg)
+        import('execa').then(value => this.execa = value);
     }
-})();
 
-async function gitTask(message, tasks) {
-    const { stdout } = await runCommander('git', ['diff'], { stdio: 'pipe' });
-    if (stdout) {
+    getPkgRoot(pkg) {
+        return (pkg === this.defaultPkg ? path.resolve(this.dirPath, '../') : `${this.dirPath}/${pkg}`);
+    }
+
+    getPkgJson(pkgRoot) {
+        const pkgPath = path.resolve(pkgRoot, 'package.json')
+        return JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+    }
+
+    async gitCommitTask(message, tasks) {
+        logStep(message);
+        const { stdout } = await this.runCommander('git', ['diff'], { stdio: 'pipe' });
+        if (stdout) {
+            for (const task of tasks) {
+                await this.runCommander('git', task);
+            }
+        } else {
+            console.log('No changes to commit.')
+        }
+    }
+
+    async gitPushTask(message, tasks){
         logStep(message);
         for (const task of tasks) {
-            await runCommander('git', task);
+            await this.runCommander('git', task);
         }
-    } else {
-        console.log('No changes to commit.')
     }
-}
 
-async function publishTask(message, targetVersion) {
-    logStep(message);
-    for (const pkg of packages) {
-        await publishPackage(pkg, targetVersion)
+    async runCommander(bin, args, opts = {}) {
+        if (!argvs.dry) return this.execa.execa(bin, args, { stdio: 'inherit', ...opts })
+        return (console.log(chalk.blue(`[dryRun] ${bin} ${args.join(' ')}`), opts), {})
     }
-    /**
-     * 
-     * @param {*} pkgName 
-     * @param {*} version 
-     * @returns 
-     */
-    async function publishPackage(pkgName, version) {
-        const pkgRoot = getPkgRoot(pkgName)
-        const pkgPath = path.resolve(pkgRoot, 'package.json')
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
-        const publishedName = pkg.name
-        if (pkg.private) {
-            return
-        }
 
-        let releaseTag = null
-        if (argvs.tag) {
-            releaseTag = argvs.tag
-        } else if (version.includes('alpha')) {
-            releaseTag = 'alpha'
-        } else if (version.includes('beta')) {
-            releaseTag = 'beta'
-        } else if (version.includes('rc')) {
-            releaseTag = 'rc'
-        }
+    async publishTask(message) {
+        logStep(message);
+        /**
+         * 
+         * @param {*} pkgName 
+         * @returns 
+         */
+        const publishPackage = async (pkgName) => {
+            const pkgRoot = this.getPkgRoot(pkgName)
+            const pkg = this.getPkgJson(pkgRoot);
+            const publishedName = pkg.name
+            if (pkg.private) {
+                return
+            }
 
-        logStep(`Publishing ${publishedName}...`)
-        try {
-            await runCommander('yarn',
-                [
-                    'publish',
-                    ...(releaseTag ? ['--tag', releaseTag] : []),
-                    '--access',
-                    'public'
-                ],
-                {
-                    cwd: pkgRoot,
-                    stdio: 'pipe'
+            let releaseTag = null
+            if (argvs.tag) {
+                releaseTag = argvs.tag
+            } else if (this.targetVersion.includes('alpha')) {
+                releaseTag = 'alpha'
+            } else if (this.targetVersion.includes('beta')) {
+                releaseTag = 'beta'
+            } else if (this.targetVersion.includes('rc')) {
+                releaseTag = 'rc'
+            }
+
+            logStep(`Publishing ${publishedName}...`)
+            try {
+                await this.runCommander(this.pkgManager,
+                    [
+                        'publish',
+                        ...(releaseTag ? ['--tag', releaseTag] : []),
+                        '--access',
+                        'public'
+                    ],
+                    {
+                        cwd: pkgRoot,
+                        stdio: 'pipe'
+                    }
+                );
+                console.log(chalk.green(`Successfully published ${publishedName}@${this.targetVersion}`))
+            } catch (e) {
+                if (e.stderr.match(/previously published/)) {
+                    console.log(chalk.red(`Skipping already published: ${publishedName}`))
+                } else {
+                    throw e
                 }
-            );
-            console.log(chalk.green(`Successfully published ${publishedName}@${version}`))
-        } catch (e) {
-            if (e.stderr.match(/previously published/)) {
-                console.log(chalk.red(`Skipping already published: ${publishedName}`))
-            } else {
-                throw e
+            }
+        };
+
+        for (const pkg of this.packages) {
+            await publishPackage(pkg)
+        }
+    }
+
+    async updatePackageVersionTask(message) {
+        logStep(message);
+        for (const pkg of this.packages) {
+            if (argvs.dry) console.log(chalk.blue(`[dryRun] updating ${pkg} package version`), this.targetVersion)
+            else {
+                const pkgRoot = this.getPkgRoot(pkg);
+                const pkgJson = this.getPkgJson(pkgRoot)
+                pkgJson.version = this.targetVersion;
+                fs.writeFileSync(path.resolve(pkgRoot, 'package.json'), JSON.stringify(pkgJson, null, 2) + '\n')
             }
         }
     }
-}
 
-async function updatePackageVersionTask(message, version) {
-    logStep(message);
-    for (const pkg of packages) {
-        const pkgPath = path.resolve(getPkgRoot(pkg), 'package.json')
-        const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
-        pkgJson.version = version
-        fs.writeFileSync(pkgPath, JSON.stringify(pkgJson, null, 2) + '\n')
+    async versionPrompt() {
+        console.log(`Current version: ${this.currentVersion}`)
+        const bumps = ['patch', 'minor', 'major', 'prerelease']
+        const versions = {};
+        bumps.forEach(b => { versions[b] = semver.inc(this.currentVersion, b) });
+        const choices = bumps.map(b => ({ name: `${b} (${versions[b]})`, value: b }))
+        const { bump, customVersion } = await inquirer.prompt([{
+            name: 'bump',
+            message: 'Select release type:',
+            type: 'list',
+            choices: [
+                ...choices,
+                { name: 'custom', value: 'custom' }
+            ]
+        },
+        {
+            name: 'customVersion',
+            message: 'Input version:',
+            type: 'input',
+            when: answers => answers.bump === 'custom'
+        }
+        ]);
+
+        this.targetVersion = customVersion || versions[bump]
+        const { confirmRelease } = await inquirer.prompt([{
+            name: 'confirmRelease',
+            message: `Confirm releasing ${this.targetVersion}?`,
+            type: 'confirm'
+        }]);
+
+        return confirmRelease;
     }
-}
 
-async function versionPrompt(currentVersion) {
-    console.log(`Current version: ${curVersion}`)
-    const bumps = ['patch', 'minor', 'major', 'prerelease']
-    const versions = {};
-    bumps.forEach(b => { versions[b] = semver.inc(currentVersion, b) });
-    const choices = bumps.map(b => ({ name: `${b} (${versions[b]})`, value: b }))
-    const { bump, customVersion } = await inquirer.prompt([{
-        name: 'bump',
-        message: 'Select release type:',
-        type: 'list',
-        choices: [
-            ...choices,
-            { name: 'custom', value: 'custom' }
-        ]
-    },
-    {
-        name: 'customVersion',
-        message: 'Input version:',
-        type: 'input',
-        when: answers => answers.bump === 'custom'
+    async updateLockFileTask() {
+        logStep('Updating lockfile...');
+        await this.runCommander(this.pkgManager, ['--pure-lockfile']);
     }
-    ]);
 
-    const version = customVersion || versions[bump]
-    const { confirmRelease } = await inquirer.prompt([{
-        name: 'confirmRelease',
-        message: `Confirm releasing ${version}?`,
-        type: 'confirm'
-    }]);
+    async generateChangeLog() {
 
-    return {
-        confirmRelease,
-        version,
-        bump
     }
-}
 
-async function updateLockFileTask() {
-    logStep('Updating lockfile...');
-    await runCommander('yarn', ['--pure-lockfile']);
-}
+    async buildTask(args) {
+        logStep('Building all packages......');
+        await this.runCommander(this.pkgManager, args ? args : ['build'])
+    }
 
-async function generateChangeLog() {
+    async updateDeps(skipPrompt){
+        // update all package deps
+        const updatedDeps = new Set()
+        logStep('Syncing remote deps...');
+        const resolvedPackages = this.packages.map(async(pkgName) => {
+            const pkgRoot = this.getPkgRoot(pkgName);
+            const filePath = path.resolve(pkgRoot, 'package.json');
+            const pkg = this.getPkgJson(pkgRoot)
+            if (!pkg.dependencies) {
+                return;
+            }
+            const deps = pkg.dependencies;
+            const resolvedDeps = [];
+            for (const dep in deps) {
+                if (dep.match(/^@jeli/)) {
+                    continue
+                }
+                let localVersion = deps[dep]
+                if (localVersion.charAt(0) !== '^') {
+                    continue
+                }
+    
+                localVersion = localVersion.replace(/^\^/, '')
+                readline.clearLine(process.stdout)
+                readline.cursorTo(process.stdout, 0)
+                process.stdout.write(dep)
+                const remoteVersion = await this.getRemoteVersion(dep)
+                resolvedDeps.push({
+                    dep,
+                    localVersion,
+                    remoteVersion
+                })
+            }
+            return {
+                pkg,
+                filePath,
+                resolvedDeps
+            }
+        }).filter(_ => _)
+    
+        const { autoSyncChanges } = await inquirer.prompt([{
+            name: 'autoSyncChanges',
+            message: `Auto sync all breaking change in dependency`,
+            type: 'confirm'
+        }]);
+    
+        for (const { pkg, filePath, resolvedDeps } of resolvedPackages) {
+            let isUpdated = false
+            for (const { dep, localVersion, remoteVersion } of resolvedDeps) {
+                const isSameVer = await this.checkUpdateAsync(dep, filePath, localVersion, remoteVersion, autoSyncChanges);
+                if (remoteVersion && isSameVer) {
+                    pkg.dependencies[dep] = `^${remoteVersion}`
+                    updatedDeps.add(dep)
+                    isUpdated = true
+                }
+            }
+            if (isUpdated) {
+                this.bufferWrite(filePath, JSON.stringify(pkg, null, 2) + '\n');
+            }
+        }
+    
+        if (skipPrompt) {
+            this.flushWrite()
+            return
+        }
+    
+        const { yes } = await inquirer.prompt([{
+            name: 'yes',
+            type: 'confirm',
+            message: 'Commit above updates?'
+        }])
+    
+        if (yes) {
+            this.flushWrite()
+        }
+    }
 
-}
+    async getRemoteVersion(pkg){
+        if (this.remoteCache[pkg]) {
+            return this.remoteCache[pkg]
+        }
+        let res
+        try {
+            res = await request(`http://registry.npmjs.org/${pkg}/latest`, { json: true })
+        } catch (e) {
+            return
+        }
+        this.remoteCache[pkg] = res.version
+        return res.version;
+    }
 
-module.exports = {
-    versionPrompt,
-    updatePackageVersionTask,
-    publishTask,
-    gitTask,
-    updateLockFileTask
+    bufferWrite(file, content){
+        this.pendingUpdate[file] = content
+    }
+
+    flushWrite(){
+        if(argvs.dry) return;
+        for (const file in this.pendingUpdate) {
+            fs.writeFileSync(file, this.pendingUpdate[file])
+        }
+    }
+
+    async checkUpdateAsync(pkg, filePath, local, remote, autoSyncChanges) {
+        if (remote !== local) {
+            const isNewer = semver.gt(remote, local)
+            if (!isNewer) {
+                return false
+            }
+            const maybeBreaking = !semver.intersects(`^${local}`, `^${remote}`)
+            if (!maybeBreaking || (maybeBreaking && autoSyncChanges)) {
+                return true
+            }
+            const { shouldUpdate } = await inquirer.prompt([{
+                name: 'shouldUpdate',
+                type: 'confirm',
+                message: this.genUpdateMessage(pkg, filePath, local, remote, maybeBreaking) + `\n` + `Update this dependency?`
+            }])
+            return shouldUpdate
+        }
+    }
+
+    genUpdateMessage(pkg, filePath, local, remote, maybeBreaking) {
+        return `${chalk.cyan(pkg)}: ${local} => ${remote} ` +
+            (maybeBreaking ? chalk.red.bold(`maybe breaking `) : ``) +
+            chalk.gray(`(${path.relative(process.cwd(), filePath)})`)
+    }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@jeli/cli-dev",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "description": "Jeli cli devtool",
   "main": "index.js",
   "files": [

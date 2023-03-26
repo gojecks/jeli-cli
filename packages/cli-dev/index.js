@@ -178,7 +178,4 @@ exports.serve = async function(entry, options) {
 
 }
 
-
-exports.test = function(entry, options) {
-
-};
+exports.test = function(entry, options) {};

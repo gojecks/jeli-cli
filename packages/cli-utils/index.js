@@ -1,7 +1,8 @@
 const colors = require('colors/safe');
 const _clearConsole = require('console-clear');
 const readline = require('readline');
-const chalk = require('chalk');
+let chalk = null;
+import('chalk').then(chalkIns => chalk = chalkIns);
 const $isBooleanValue = 'true | false | 1 | 0';
 const quote = '\'';
 let initialMsg = [];

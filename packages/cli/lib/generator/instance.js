@@ -12,7 +12,6 @@ const {
     getSchema,
     runConditions
 } = require('../create/utils');
-const { install } = require('../utils/packageManager');
 
 class GeneratorInstance {
     constructor(type, options) {
@@ -194,7 +193,6 @@ class GeneratorInstance {
             await copyTemplate('', projectData.targetDir, ['default']);
             await GeneratorInstance.addProject(projectData, true);
             await updatePackageJSON(projectData);
-            await install(projectData.packagemanager, projectData.targetDir);
         } catch (e) {
             jeliUtils.console.error(e);
             jeliUtils.console.error(`unable to generate ${jeliUtils.colors.cyan(projectData.variant)}`);

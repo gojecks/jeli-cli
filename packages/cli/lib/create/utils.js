@@ -2,7 +2,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const jeliUtils = require('@jeli/cli-utils');
 const shell = require('shelljs');
-const execa = require('execa');
+const execaAsync = import('execa');
 
 exports.getTemplatePath = name => path.resolve(__dirname, '../../templates', name || '');
 exports.getJeliSchemaFilePath = targetDir => path.join(targetDir, 'jeli.json');
@@ -105,7 +105,7 @@ exports.updatePackageJSON = async (projectData) => {
     }
 
     if (projectData.router) {
-        json.dependencies["@jeli/router"] = "^1.0.0";
+        json.dependencies["@jeli/router"] = "latest";
     }
 
     json.name = projectData.name;
@@ -177,7 +177,8 @@ exports.gitInit = async projectData => {
 };
 
 const run = async (cmd, args, cwd) => {
-    return execa(cmd, args, { cwd })
+    const execa  = await execaAsync
+    return execa.execa(cmd, args, { cwd })
 };
 
 

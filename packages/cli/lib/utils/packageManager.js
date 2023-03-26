@@ -1,16 +1,10 @@
-const execa = require('execa');
+const execaAsync = import('execa');
 const envInfo = require('../info');
 const jeliUtils = require('@jeli/cli-utils');
-const ora = require('@jeli/cli-utils/spinner');
-
 const execCommand = async(cmd, args, cwd) => {
-    return await execa(cmd, args, {
-        cwd,
-        // stdio: ['inherit', 'inherit', 'inherit']
-    });
-
+    const execa = await execaAsync;
+    return execa.execa(cmd, args, { stdio: 'inherit', cwd });
 }
-
 
 exports.getPackageManagerList = async() => {
     const info = await envInfo.asDefined({
@@ -26,7 +20,7 @@ exports.getPackageManagerList = async() => {
 };
 
 exports.install = async(cmd, cwd) => {
-    const spinner = ora.start(jeliUtils.colors.bold('📦  Installing dependencies...'));
+    console.log(jeliUtils.colors.bold('📦  Installing dependencies...\n'));
     const options = {
         npm: {
             install: ['install', '--loglevel', 'error']
@@ -38,9 +32,7 @@ exports.install = async(cmd, cwd) => {
 
     try {
         await execCommand(cmd, options[cmd].install, cwd);
-        spinner.stop();
     } catch (err) {
-        spinner.fail();
         jeliUtils.console.error(err.message);
         jeliUtils.console.error('\nError while installing dependencies\nPlease resolve error and run ' + jeliUtils.colors.yellow(`"${cmd} install"\n`))
         throw false;
