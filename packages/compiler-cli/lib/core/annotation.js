@@ -1,4 +1,4 @@
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const { escogen, parseAst } = require('./ast.generator');
 const { parseQuery } = require('./query_selector');
 const loader = require('./loader');

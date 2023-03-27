@@ -1,5 +1,5 @@
 const path = require('path');
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('../utils');
 const { getJeliJson, validateProjectAndWorkSpace } = require('../create/utils');
 const GeneratorInstance = require('./instance');
 const supportedTypes = { e: "element", s: "service", d: "directive", m: "module", p: "pipe", r: "router", c: "combination" };

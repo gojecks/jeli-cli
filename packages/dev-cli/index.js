@@ -1,4 +1,4 @@
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('@jeli/cli/lib/utils');
 const path = require('path');
 const fs = require('fs');
 const changeCWD = folder => {
@@ -32,7 +32,7 @@ const getPackageJson = folder => {
  */
 exports.build = async function build(entry, options, startDevServer) {
     const jeliSchemaJSON = getSchema();
-    const jeliCompiler = require('@jeli/compiler');
+    const jeliCompiler = require('@jeli/compiler-cli');
     entry = entry || jeliSchemaJSON.default;
     if (!jeliSchemaJSON.projects.hasOwnProperty(entry)) {
         jeliUtils.abort(`\n unable to find project ${entry} in schema`);
@@ -73,29 +73,7 @@ exports.build = async function build(entry, options, startDevServer) {
      * start devServer and watcher
      */
     if (options.serverOptions) {
-        const server = startDevServer();
-        if (options.buildOptions.watch) {
-            const watch = require('./lib/build/watch');
-            const watchFolders = [projectSchema.sourceRoot];
-            let pending = false;
-            await watch(watchFolders, async(path, event) => {
-                if (!pending) {
-                    server.pushEvent('compiling');
-                    pending = true;
-                    try {
-                        await jeliCompiler.buildByFileChanges(path, event);
-                        server.pushEvent('reload');
-                        jeliUtils.console.success(jeliUtils.colors.green('compilation successful.'));
-                    } catch (e) {
-                        console.log(e);
-                        jeliUtils.console.error('compilation error.');
-                        server.pushEvent('error');
-                    } finally {
-                        pending = false;
-                    }
-                }
-            });
-        }
+        startDevServer(projectSchema.sourceRoot);
     }
 
     /**
@@ -110,11 +88,12 @@ exports.build = async function build(entry, options, startDevServer) {
  * @param {*} options 
  */
 exports.serve = async function(entry, options) {
-    const { genServerOptions, attachListeners, cleanup } = require('./lib/utils/server');
+    const { genServerOptions, attachListeners, cleanup } = require('./lib/server/utils');
     const os = require('os');
     const httpServer = require('./lib/server/create');
     const opener = require('opener');
     const ifaces = os.networkInterfaces();
+    const watchFn = require('./lib/utils/watch');
     /**
      * port and host could be overridden by configurations
      * @returns 
@@ -167,11 +146,36 @@ exports.serve = async function(entry, options) {
         return server;
     }
 
+    async function serveAndWatch(sourceRoot){
+        const server = startServer();
+        if (options.buildOptions.watch) {
+            const watchFolders = [sourceRoot];
+            let pending = false;
+            await watchFn(watchFolders, async(path, event) => {
+                if (!pending) {
+                    server.pushEvent('compiling');
+                    pending = true;
+                    try {
+                        await jeliCompiler.buildByFileChanges(path, event);
+                        server.pushEvent('reload');
+                        jeliUtils.console.success(jeliUtils.colors.green('compilation successful.'));
+                    } catch (e) {
+                        console.log(e);
+                        jeliUtils.console.error('compilation error.');
+                        server.pushEvent('error');
+                    } finally {
+                        pending = false;
+                    }
+                }
+            });
+        }
+    }
+
     /**
      * trigger the build instance
      */
     try {
-        exports.build(entry, options, startServer);
+        exports.build(entry, options, serveAndWatch);
     } catch (err) {
         jeliUtils.abort(err.message);
     }

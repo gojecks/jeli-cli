@@ -1,4 +1,4 @@
-const ReleaseTaskRunner = require('./task');
+const ReleaseTaskRunner = require('../packages/cli/lib/utils/release-task');
 const path = require('path');
 
 async function runTask() {

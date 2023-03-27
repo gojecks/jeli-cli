@@ -1,6 +1,6 @@
 'use strict';
 
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('@jeli/cli/lib/utils');
 const fs = require('fs-extra');
 
 exports.genServerOptions = options => {

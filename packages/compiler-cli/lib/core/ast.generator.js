@@ -1,5 +1,5 @@
 const esprima = require('esprima');
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const escodegen = require('escodegen');
 const comment = require('./comment');
 const expressionList = 'Directive,Element,Service,Provider,Pipe,jModule'.split(',');

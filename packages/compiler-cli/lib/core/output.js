@@ -1,5 +1,5 @@
 const path = require('path');
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const fs = require('fs-extra');
 const lodashTemplate = require('lodash.template');
 const uglify = require('uglify-js');

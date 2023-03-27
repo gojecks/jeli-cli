@@ -1,4 +1,4 @@
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('@jeli/cli/lib/utils');
 const ecstatic = require('ecstatic');
 const httpProxy = require('http-proxy');
 const path = require('path');

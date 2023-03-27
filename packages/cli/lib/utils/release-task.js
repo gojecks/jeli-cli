@@ -1,20 +1,21 @@
 const semver = require('semver')
 const fs = require('fs');
 const path = require('path')
-const inquirer = require('inquirer');
-const chalk = require('chalk');
 const argvs = require('minimist')(process.argv.slice(2))
 const request = require('request-promise-native');
 const readline = require('readline');
-const logStep = msg => console.log(chalk.cyan('\n' + msg))
+const jeliUtils = require('./');
+const inquirerAsync = import('inquirer');
+const logStep = msg => console.log(jeliUtils.writeColor('\n' + msg, 'cyan'))
 
 module.exports = class ReleaseTaskRunner {
     remoteCache = {};
     pendingUpdate = {};
-    constructor(dirPath = '', pkgManager = 'yarn', defaultPkg = 'jeli') {
+    constructor(dirPath = '', pkgManager = 'yarn', defaultPkg = 'jeli', cliVersion='') {
         this.pkgManager = pkgManager;
         this.dirPath = dirPath;
         this.defaultPkg = defaultPkg;
+        this.cliVersion = cliVersion;
         this.currentVersion = require(path.resolve(dirPath, '../package.json')).version;
         this.packages = fs.readdirSync(dirPath)
             .filter(t => t !== '.DS_Store')
@@ -52,7 +53,7 @@ module.exports = class ReleaseTaskRunner {
 
     async runCommander(bin, args, opts = {}) {
         if (!argvs.dry) return this.execa.execa(bin, args, { stdio: 'inherit', ...opts })
-        return (console.log(chalk.blue(`[dryRun] ${bin} ${args.join(' ')}`), opts), {})
+        return (console.log(jeliUtils.colors.blue(`[dryRun] ${bin} ${args.join(' ')}`), opts), {})
     }
 
     async publishTask(message) {
@@ -95,10 +96,10 @@ module.exports = class ReleaseTaskRunner {
                         stdio: 'pipe'
                     }
                 );
-                console.log(chalk.green(`Successfully published ${publishedName}@${this.targetVersion}`))
+                console.log(jeliUtils.colors.green(`Successfully published ${publishedName}@${this.targetVersion}`))
             } catch (e) {
                 if (e.stderr.match(/previously published/)) {
-                    console.log(chalk.red(`Skipping already published: ${publishedName}`))
+                    console.log(jeliUtils.colors.red(`Skipping already published: ${publishedName}`))
                 } else {
                     throw e
                 }
@@ -113,7 +114,7 @@ module.exports = class ReleaseTaskRunner {
     async updatePackageVersionTask(message) {
         logStep(message);
         for (const pkg of this.packages) {
-            if (argvs.dry) console.log(chalk.blue(`[dryRun] updating ${pkg} package version`), this.targetVersion)
+            if (argvs.dry) console.log(jeliUtils.colors.blue(`[dryRun] updating ${pkg} package version`), this.targetVersion)
             else {
                 const pkgRoot = this.getPkgRoot(pkg);
                 const pkgJson = this.getPkgJson(pkgRoot)
@@ -129,7 +130,12 @@ module.exports = class ReleaseTaskRunner {
         const versions = {};
         bumps.forEach(b => { versions[b] = semver.inc(this.currentVersion, b) });
         const choices = bumps.map(b => ({ name: `${b} (${versions[b]})`, value: b }))
-        const { bump, customVersion } = await inquirer.prompt([{
+        if (this.cliVersion){
+            choices.push({name:`Same as cli (${this.cliVersion})`, value: 'cli'});
+            versions['cli'] = this.cliVersion;
+        }
+
+        const { bump, customVersion } = await this.prompt([{
             name: 'bump',
             message: 'Select release type:',
             type: 'list',
@@ -145,9 +151,9 @@ module.exports = class ReleaseTaskRunner {
             when: answers => answers.bump === 'custom'
         }
         ]);
-
+        
         this.targetVersion = customVersion || versions[bump]
-        const { confirmRelease } = await inquirer.prompt([{
+        const { confirmRelease } = await this.prompt([{
             name: 'confirmRelease',
             message: `Confirm releasing ${this.targetVersion}?`,
             type: 'confirm'
@@ -210,7 +216,7 @@ module.exports = class ReleaseTaskRunner {
             }
         }).filter(_ => _)
     
-        const { autoSyncChanges } = await inquirer.prompt([{
+        const { autoSyncChanges } = await this.prompt([{
             name: 'autoSyncChanges',
             message: `Auto sync all breaking change in dependency`,
             type: 'confirm'
@@ -236,7 +242,7 @@ module.exports = class ReleaseTaskRunner {
             return
         }
     
-        const { yes } = await inquirer.prompt([{
+        const { yes } = await this.prompt([{
             name: 'yes',
             type: 'confirm',
             message: 'Commit above updates?'
@@ -282,7 +288,7 @@ module.exports = class ReleaseTaskRunner {
             if (!maybeBreaking || (maybeBreaking && autoSyncChanges)) {
                 return true
             }
-            const { shouldUpdate } = await inquirer.prompt([{
+            const { shouldUpdate } = await this.prompt([{
                 name: 'shouldUpdate',
                 type: 'confirm',
                 message: this.genUpdateMessage(pkg, filePath, local, remote, maybeBreaking) + `\n` + `Update this dependency?`
@@ -292,8 +298,13 @@ module.exports = class ReleaseTaskRunner {
     }
 
     genUpdateMessage(pkg, filePath, local, remote, maybeBreaking) {
-        return `${chalk.cyan(pkg)}: ${local} => ${remote} ` +
-            (maybeBreaking ? chalk.red.bold(`maybe breaking `) : ``) +
-            chalk.gray(`(${path.relative(process.cwd(), filePath)})`)
+        return `${jeliUtils.colors.cyan(pkg)}: ${local} => ${remote} ` +
+            (maybeBreaking ? jeliUtils.colors.red.bold(`maybe breaking `) : ``) +
+            jeliUtils.colors.gray(`(${path.relative(process.cwd(), filePath)})`)
+    }
+
+    prompt = async questions => {
+        const inquirer = await inquirerAsync;
+        return await inquirer.default.prompt(questions);
     }
 }

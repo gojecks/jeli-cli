@@ -3,7 +3,7 @@
 const semver = require('semver')
 const requiredVersion = require('../package.json').engines.node
 const levenAsync = import('leven')
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('../lib/utils/index');
 
 function checkNodeVersion(wanted, id) {
     if (!semver.satisfies(process.version, wanted)) {
@@ -43,7 +43,7 @@ program
     .option('--configuration <configiration>', 'choose configuration to compile with')
     .option('--prod', 'build application for production')
     .action((entry, args) => {
-        cliCommander('build', '@jeli/cli-dev').build(entry, {
+        cliCommander('build', '@jeli/dev-cli').build(entry, {
             configuration: args.configuration,
             buildOptions: jeliUtils.extractArgs(['cwd', 'prod', 'version'], args)
         })
@@ -68,7 +68,7 @@ program
     .action((entry, args) => {
         const root = `./node_modules/.jeliCache/serve/${entry || 'main'}/`;
         const serverOptions = jeliUtils.extractArgs('ssl,cert,key,proxy,username,password,timeout,gzip,port,host,open'.split(','), args);
-        cliCommander('serve', '@jeli/cli-dev').serve(entry, {
+        cliCommander('serve', '@jeli/dev-cli').serve(entry, {
             configuration: args.connfiguration || 'serve',
             buildOptions: {
                 cwd: args.cwd,
@@ -91,7 +91,7 @@ program
     .description('print debugging information about your environment')
     .action(_ => {
         const { cliInfo } = require('../lib/info');
-        jeliUtils.console.write(jeliUtils.chalk.bold('\nEnvironment Info:'));
+        jeliUtils.console.write(jeliUtils.writeColor('\nEnvironment Info:', 'bold'));
         cliInfo();
     })
 

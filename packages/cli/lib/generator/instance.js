@@ -1,6 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('../utils/index');
 const {
     getTemplatePath,
     copyTemplate,
@@ -39,7 +39,8 @@ class GeneratorInstance {
         this.replacerData = Object.assign({
             name: this.fnName,
             filename: `${this.name}.${this.type}`,
-            type: this.type
+            type: this.type,
+            prefix: this.options.projectConfig.prefix
         }, ...args);
     }
 

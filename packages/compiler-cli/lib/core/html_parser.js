@@ -4,7 +4,7 @@
 const parser = require('html-dom-parser');
 const { parseAst, parseAstJSON } = require('./ast.generator');
 const interpolation = require('./interpolation');
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const { matchViewQueryFromAstNode } = require('./query_selector');
 const restrictedCombination = ['j-template', 'j-place', 'case', 'default'];
 const isFragmentElement = tagName => ["j-fragment", "j-template", "j-place", 'template'].includes(tagName);

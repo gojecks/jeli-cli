@@ -1,6 +1,6 @@
 const execaAsync = import('execa');
 const envInfo = require('../info');
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('../utils');
 const execCommand = async(cmd, args, cwd) => {
     const execa = await execaAsync;
     return execa.execa(cmd, args, { stdio: 'inherit', cwd });

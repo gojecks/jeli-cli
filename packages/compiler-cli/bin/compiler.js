@@ -2,7 +2,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const minimist = require('minimist');
 const args = minimist(process.argv);
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('@jeli/cli/lib/utils');
 const packageJSONParams = ['version'].reduce((accum, prop) => { accum[prop] = args[prop]; return accum }, {});
 
 

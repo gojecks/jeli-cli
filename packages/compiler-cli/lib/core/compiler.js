@@ -1,7 +1,7 @@
 /**
  * core required Modules
  */
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const { escogen, generateAstSource } = require('./ast.generator');
 const path = require('path');
 const annotationParser = require('./annotation');

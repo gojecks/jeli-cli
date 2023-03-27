@@ -1,9 +1,10 @@
 const fs = require('fs-extra');
 const path = require('path');
-const jeliUtils = require('@jeli/cli-utils');
-const shell = require('shelljs');
+const jeliUtils = require('../utils/index');
 const execaAsync = import('execa');
 
+exports.isDirExists = dir => fs.existsSync(dir);
+exports.removeDir = dir =>  fs.removeSync(dir);
 exports.getTemplatePath = name => path.resolve(__dirname, '../../templates', name || '');
 exports.getJeliSchemaFilePath = targetDir => path.join(targetDir, 'jeli.json');
 exports.getJeliJson = targetDir => {
@@ -105,7 +106,7 @@ exports.updatePackageJSON = async (projectData) => {
     }
 
     if (projectData.router) {
-        json.dependencies["@jeli/router"] = "latest";
+        json.dependencies["@jeli/router"] = projectData.cliversion || 'latest';
     }
 
     json.name = projectData.name;
@@ -144,11 +145,12 @@ exports.copyTemplate = async (name, targetDir, variants) => {
 
 exports.replaceVariablesInTemplate = async projectData => {
     // Replace variable values in all files
-    shell.ls('-Rl', projectData.targetDir).forEach(file => {
-        if (file.isFile()) {
+    const files = fs.readdirSync(`${projectData.targetDir}`,{withFileTypes:true});
+    for(const file of files)  {
+        if (file.isFile()){
             this.updateContent(path.join(projectData.targetDir, file.name), projectData);
         }
-    });
+    }
 };
 
 exports.templateParser = (content, options) => {
@@ -174,7 +176,7 @@ exports.gitInit = async projectData => {
     } catch (err) {
         jeliUtils.console.warn(`Failed to run git commit, you will need to perform initial commit.\n`)
     }
-};
+}
 
 const run = async (cmd, args, cwd) => {
     const execa  = await execaAsync

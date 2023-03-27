@@ -2,7 +2,7 @@
 const { compiler, singleCompiler } = require('./core/compiler');
 const generator = require('./core/generator');
 const { CompilerObject, session } = require('./core/compilerobject');
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const loader = require('./core/loader');
 const ComponentsResolver = require('./core/components.facade');
 const getAssetItem = (filePath, list) => (list || []).find(item  => filePath.includes(item.src));

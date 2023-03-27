@@ -1,4 +1,4 @@
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const delimeter = ['${', '}'];
 const defaultTemplateExp = new RegExp(escapeRegExp(delimeter[0]) + '([\\s\\S]*?)' + escapeRegExp(delimeter[1]), 'g');;
 /**

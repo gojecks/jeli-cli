@@ -1,5 +1,5 @@
 const { findTokenInGlobalImports } = require('./compilerobject');
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 /**
  * 
  * @param {*} queryElements

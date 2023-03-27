@@ -1,4 +1,4 @@
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const htmlParser = require('./html_parser');
 const loader = require('./loader');
 const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges, copyAndUpdateAssetsFile } = require('./output');

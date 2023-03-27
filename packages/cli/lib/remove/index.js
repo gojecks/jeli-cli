@@ -1,4 +1,4 @@
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('../utils');
 const { getJeliJson, getJeliSchemaFilePath, validateProjectAndWorkSpace } = require('../create/utils');
 
 module.exports = async(projectName, options) => {

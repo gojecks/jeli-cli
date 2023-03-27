@@ -1,7 +1,7 @@
 {
-  "name": "@jeli/compiler",
-  "version": "0.0.5",
-  "description": "jeli-js compiler",
+  "name": "@jeli/compiler-cli",
+  "version": "0.0.6",
+  "description": "jeli compiler for frontend development",
   "directories": {
     "test": "test"
   },

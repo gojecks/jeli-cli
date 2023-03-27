@@ -1,8 +1,6 @@
 const colors = require('colors/safe');
 const _clearConsole = require('console-clear');
 const readline = require('readline');
-let chalk = null;
-import('chalk').then(chalkIns => chalk = chalkIns);
 const $isBooleanValue = 'true | false | 1 | 0';
 const quote = '\'';
 let initialMsg = [];
@@ -332,5 +330,7 @@ exports.writeline = text => {
     process.stdout.write(text);
 };
 
-exports.chalk = chalk;
 exports.colors = colors;
+exports.writeColor = (text, color) => {
+    return colors[color](text);
+}

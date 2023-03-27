@@ -1,10 +1,9 @@
-const fs = require('fs-extra');
 const path = require('path');
 const validateProjectName = require('validate-npm-package-name');
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('../utils/index');
 const { projectPrompt } = require('./prompt');
 const { getPackageManagerList, install} = require('../utils/packageManager');
-const { isJeliProject, getJeliJson, gitInit } = require('./utils');
+const { isJeliProject, getJeliJson, gitInit, removeDir } = require('./utils');
 const GeneratorInstance = require('../generator/instance');
 
 const projectNameValidation = name => {
@@ -47,7 +46,7 @@ async function create(projectName, options) {
                 jeliUtils.console.warn(`\nCurrent working directory is a jeli workspace`);
                 jeliUtils.abort(`fatal: project "${jeliUtils.colors.cyan(name.toUpperCase())}" already exists.`);
             } else {
-                fs.removeSync(path.join(cwd, json.projects[name].sourceRoot));
+                removeDir(path.join(cwd, json.projects[name].sourceRoot));
             }
         }
     } else {
@@ -65,6 +64,7 @@ async function create(projectName, options) {
     const availablePkgMgr = await getPackageManagerList();
     const projectData = await projectPrompt(isJeliProjectWorkSpace, name, targetDir, isProjectExists, availablePkgMgr.Binaries);
     if ((!isJeliProjectWorkSpace || (isJeliProjectWorkSpace && projectData.dirOption == 2) && blankWorkSpace)) {
+        projectData.cliversion = require('../../package.json').version;
         await GeneratorInstance.createProject(projectData);
         await install(projectData.packagemanager, projectData.targetDir);
         await gitInit(projectData);

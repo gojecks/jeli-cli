@@ -1,4 +1,4 @@
-const helper = require('@jeli/cli-utils');
+const helper = require('@jeli/cli/lib/utils');
 const cached = {};
 
 

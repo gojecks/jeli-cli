@@ -1,4 +1,4 @@
-const jeliUtils = require('@jeli/cli-utils');
+const jeliUtils = require('../utils/index');
 /**
  * 
  * @param {*} commandName
@@ -12,10 +12,10 @@ module.exports = function(commandName, requiredModule) {
                 try {
                     return require('import-global')(requiredModule)
                 } catch (importError) {
-                    if (isNotFoundError(importError)) {
+                    if (jeliUtils.isNotFoundError(importError)) {
                         jeliUtils.console.write(
-                                `\n  Command ${jeliUtils.chalk.cyan(`jeli ${commandName}`)} requires ${requiredModule} to be installed.\n` +
-                        `  Please run ${jeliUtils.chalk.cyan(`npm install ${requiredModule}`)} and try again. \n`
+                                `\n  Command ${jeliUtils.writeColor(`jeli ${commandName}`, 'cyan')} requires ${requiredModule} to be installed.\n` +
+                        `  Please run ${jeliUtils.writeColor(`npm install ${requiredModule}`, 'cyan')} and try again. \n`
                     )
                     process.exit(1)
                 } else {

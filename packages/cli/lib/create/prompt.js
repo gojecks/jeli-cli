@@ -1,7 +1,6 @@
 const inquirerAsync = import('inquirer');
-const fs = require('fs-extra');
-const jeliUtils = require('@jeli/cli-utils');
-const { getSchema, runConditions } = require('./utils');
+const jeliUtils = require('../utils');
+const { getSchema, runConditions, removeDir, isDirExists } = require('./utils');
 
 const promptJson = getSchema('questionnaire-master.json');
 const promptHelpers = {
@@ -26,7 +25,7 @@ const validators = {
          */
         if (answer.dirOption == 2) {
             jeliUtils.console.write(`\nRemoving ${jeliUtils.colors.cyan(targetDir)}...`)
-            await fs.remove(targetDir);
+            removeDir(targetDir);
         }
         /**
          * cancel option
@@ -66,7 +65,7 @@ exports.answers = async(questions, projectData) => {
  * Project prompt method
  */
 exports.projectPrompt = async(jeliWorkSpace, name, targetDir, projectExists, availablePkgMgr) => {
-    const dirExist = fs.existsSync(targetDir);
+    const dirExist = isDirExists(targetDir);
     const projectJsonPrompt = getSchema('create-new.json');
     const projectData = await this.answers(projectJsonPrompt, { name, targetDir, availablePkgMgr, dirExist, projectExists, jeliWorkSpace });
     projectData.year = new Date().getFullYear();
