@@ -150,11 +150,12 @@ async function importFile(currentInstance, importItem, parentPath, isExternalMod
         }
 
         currentInstance.pushGlobalImports(importItem, helper.trimPackageName(importItem.source), resolvedDep);
-
+        
         if (!isLib) {
             await processFile(currentInstance, resolvedDep.source, parentPath, lazyLoadModulePath, true, importItem);
         } else {
-            await validateImports(importItem, getMetaData(importItem.source).exports, importItem.source, parentPath);
+            const depMetaData = getMetaData(importItem.source);
+            await validateImports(importItem, (depMetaData || {}).exports, importItem.source, parentPath);
         }
 
         addAbsolutePath(importItem, resolvedDep.source, isLib);
@@ -197,7 +198,7 @@ function extractRequired(currentInstance, source, filePath) {
  * @param {*} importedItem 
  * @param {*} exported 
  */
-async function validateImports(importedItem, exported, filePath, parentPath) {
+async function validateImports(importedItem, exported = [], filePath, parentPath) {
     exported = exported.map(item => item.exported);
     const invalidImport = hasInvalidImport(importedItem, exported);
     if (invalidImport && invalidImport.length) {
@@ -223,6 +224,7 @@ exports.compiler = async function (componentsResolver) {
     const filePath = path.join(componentsResolver.compilerObject.options.sourceRoot, componentsResolver.compilerObject.entryFile);
     await processFile(componentsResolver, filePath, null, null, false, null, true);
     await processLazyLoads(componentsResolver);
+    loader.spinner.stop(); 
 };
 /**
  * 

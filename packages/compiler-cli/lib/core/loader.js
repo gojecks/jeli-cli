@@ -1,13 +1,12 @@
 const path = require('path');
 const helper = require('@jeli/cli/lib/utils');
-const ora = require('@jeli/cli/lib/utils/spinner');
+const spinner = require('@jeli/cli/lib/utils/spinner');
 const fs = require('fs-extra');
 const glob = require('glob');
 const REQUIRED_ID = 'ϕrequired';
 const supportedFiles = ['.js', '.jli'];
 const _fileCache_ = new Map();
-exports.spinner = null;
-exports.startSpinner = () => this.spinner = ora.start('compiling...')
+exports.spinner = spinner.start('compiling...');
 
 /**
  * 
@@ -108,8 +107,9 @@ exports.resolveDependency = (dep, resolveOptions) => {
         } else if (fs.existsSync(jsPath)) {
             let pkgJson = {};
             if (depPath.startsWith('node_modules')) {
-                const modulePath = path.join(resolvePath, dep.split('/')[0]);
-                pkgJson = exports.getPackageJson(modulePath);
+                const spltDep = dep.split('/')
+                const modulePath = path.join(resolvePath, spltDep.slice(0, dep.includes('@')? 2 : 2).join('/'));
+                pkgJson = exports.getPackageJson(modulePath, true);
             }
 
             return {
@@ -133,7 +133,7 @@ exports.resolveDependency = (dep, resolveOptions) => {
             return {
                 source: path.join(depPath, pkgJson.module || pkgJson.main),
                 stylesPath: pkgJson.stylesPath ? path.join(depPath, pkgJson.stylesPath) : null,
-                metadata: path.join(depPath, pkgJson.metadata || 'metadata.json'),
+                metadata: pkgJson.metaDataPath ? path.join(depPath, pkgJson.metaDataPath) : null,
                 isModule: !!pkgJson.module,
                 version: pkgJson.version,
                 name: pkgJson.name
@@ -155,7 +155,7 @@ exports.resolveDependency = (dep, resolveOptions) => {
 exports.getPackageJson = (entry, silent) => {
     const packagePath = path.join(entry, 'package.json');
     if (!fs.existsSync(packagePath) && !silent) {
-        helper.console.error(`Cannot find package.json file: ${packagePath}`);
+        helper.console.error(`\nCannot find package.json file: ${packagePath}`);
         return null;
     }
 

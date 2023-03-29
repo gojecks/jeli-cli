@@ -104,7 +104,7 @@ async function CompilerObject(options, buildOptions, resolvers) {
                 get: () => options
             },
             buildOptions: {
-                get: () => buildOptions
+                get: () => buildOptions || {}
             }
         });
 

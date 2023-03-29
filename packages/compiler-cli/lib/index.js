@@ -8,15 +8,17 @@ const ComponentsResolver = require('./core/components.facade');
 const getAssetItem = (filePath, list) => (list || []).find(item  => filePath.includes(item.src));
 
 //start spinner
-loader.startSpinner();
 exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
-    if (!projectSchema) helper.console.error(`Invalid or no configuration specified`);
+    if (!projectSchema){
+        loader.spinner.stop();
+        return helper.console.error(`Invalid or no configuration specified`);
+    } 
+    
     try {
         const compilerObject = await CompilerObject(projectSchema, buildOptions, resolveSchema);
         for (const name in compilerObject) {
             const componentsResolver = new ComponentsResolver(compilerObject[name]);
             await compiler(componentsResolver);
-            loader.spinner.stop();
             await generator.generateApp(componentsResolver, name);
         }
 
@@ -24,6 +26,7 @@ exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
             session.save(compilerObject);
         }
     } catch (e) {
+        console.log(e);
         helper.abort(`\n${e.message}`);
     }
 

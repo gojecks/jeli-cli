@@ -3,6 +3,7 @@ const path = require('path');
 const minimist = require('minimist');
 const args = minimist(process.argv);
 const jeliUtils = require('@jeli/cli/lib/utils');
+const jeliCompiler = require('../lib/index');
 const packageJSONParams = ['version'].reduce((accum, prop) => { accum[prop] = args[prop]; return accum }, {});
 
 
@@ -17,13 +18,19 @@ if (!fs.existsSync(configPath)) {
 
 async function build() {
     const config = fs.readJSONSync(configPath);
-    const jeliCompiler = require('../lib/index');
     if (args.all) {
         for (const name in config.projects) {
             await jeliCompiler.builder(config.projects[name], packageJSONParams, config.resolve);
         }
     } else {
-        await jeliCompiler.builder(config.projects[args.entry || config.default], packageJSONParams, config.resolve);
+        const projectSchema = config.projects[args.entry || config.default];
+        if (!projectSchema) {
+            const projectList = Object.keys(config.projects).map(n => jeliUtils.writeColor(n, 'yellow')).join('\n');
+            jeliUtils.console.write(`List of available projets:\n ${projectList}`);
+            jeliUtils.console.error(`\nProject ${jeliUtils.writeColor(args.entry, 'bold')} doesn't exists`);
+        }
+        await jeliCompiler.builder(projectSchema, packageJSONParams, config.resolve);
+        
     }
 };
 

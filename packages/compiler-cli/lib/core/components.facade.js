@@ -118,8 +118,9 @@ class ComponentsResolver  {
                 specifiers: [],
                 absolutePath: resolvedDep.source,
                 version: resolvedDep.version,
-                name: resolvedDep.name
-            };
+                name: resolvedDep.name,
+                default: importItem.default
+            }
 
             if (resolvedDep.stylesPath) {
                 if (!this.compilerObject.options.output.styles) {

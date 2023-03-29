@@ -89,6 +89,8 @@ exports.generateBundleData = async function (compilerObject, fileNames) {
         if (globImp.name)
             packageJSON.peerDependencies[globImp.name] = verifyVersion(globImp.version);
     }
+
+    packageJSON.metaDataPath = 'metadata.json';
     exports.writeFile(outputPackageJSON, JSON.stringify(packageJSON, null, 2));
     saveCompilerData(compilerObject);
 }
@@ -521,20 +523,23 @@ function _writeImport(compilerObject, importItems, output, isExternalModule = tr
         } else if (compilerObject.globalImports.hasOwnProperty(importItem.source)) {
             const globalDepMeta = compilerObject.globalImports[importItem.source];
             index = getIndex(globalDepMeta.absolutePath);
-            if (!isExternalModule) {
-                defaultModuleImports.$[globalDepMeta.output.arg] = defaultModuleImports.$[globalDepMeta.output.arg] || [];
-                importItem.specifiers.forEach(specifier => {
-                    if (!defaultModuleImports.$[globalDepMeta.output.arg].includes(specifier.imported))
-                        defaultModuleImports.$[globalDepMeta.output.arg].push(specifier.imported);
-                });
-            } else {
-                importItem.specifiers.forEach(specifier => {
-                    if (!isImported(index, specifier.imported))
-                        output.unshift(`var ${specifier.local} = ${globalDepMeta.output.arg}.${specifier.imported};\n`);
-                });
+            if (globalDepMeta.default) {
+                output.unshift(`var ${importItem.specifiers[0].imported} = __required(${index}, 'default');\n`);
+            }else {
+                if (!isExternalModule) {
+                    defaultModuleImports.$[globalDepMeta.output.arg] = defaultModuleImports.$[globalDepMeta.output.arg] || [];
+                    importItem.specifiers.forEach(specifier => {
+                        if (!defaultModuleImports.$[globalDepMeta.output.arg].includes(specifier.imported))
+                            defaultModuleImports.$[globalDepMeta.output.arg].push(specifier.imported);
+                    });
+                } else {
+                    importItem.specifiers.forEach(specifier => {
+                        if (!isImported(index, specifier.imported))
+                            output.unshift(`var ${specifier.local} = ${globalDepMeta.output.arg}.${specifier.imported};\n`);
+                    });
+                }
+                output.unshift(`var ${globalDepMeta.output.arg} = __required(${index});\n`);
             }
-
-            output.unshift(`var ${globalDepMeta.output.arg} = __required(${index});\n`);
         } else if (compilerObject.files.hasOwnProperty(importItem.absolutePath)) {
             importItem.specifiers.forEach(specifier => {
                 if (!isImported(index, specifier.imported))
