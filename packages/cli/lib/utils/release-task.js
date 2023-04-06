@@ -7,19 +7,19 @@ const readline = require('readline');
 const jeliUtils = require('./');
 const inquirerAsync = import('inquirer');
 const logStep = msg => console.log(jeliUtils.writeColor('\n' + msg, 'cyan'))
+const packages = argvs.packages ? argvs.packages.split(',')  :  null;
 
 module.exports = class ReleaseTaskRunner {
     remoteCache = {};
     pendingUpdate = {};
-    constructor(dirPath = '', pkgManager = 'yarn', defaultPkg = 'jeli', cliVersion='') {
+    constructor(dirPath = '', pkgManager = 'yarn', defaultPkg = 'jeli', cliVersion='', distPath='') {
         this.pkgManager = pkgManager;
         this.dirPath = dirPath;
         this.defaultPkg = defaultPkg;
         this.cliVersion = cliVersion;
+        this.distPath = distPath;
         this.currentVersion = require(path.resolve(dirPath, '../package.json')).version;
-        this.packages = fs.readdirSync(dirPath)
-            .filter(t => t !== '.DS_Store')
-            .concat(defaultPkg)
+        this.packages = (packages || fs.readdirSync(dirPath).filter(t => t !== '.DS_Store')).concat(defaultPkg)
         import('execa').then(value => this.execa = value);
     }
 
@@ -92,7 +92,7 @@ module.exports = class ReleaseTaskRunner {
                         'public'
                     ],
                     {
-                        cwd: pkgRoot,
+                        cwd: this.distPath ? `${this.distPath}/${pkgName}`: pkgRoot,
                         stdio: 'pipe'
                     }
                 );

@@ -10,7 +10,7 @@ module.exports = function(commandName, requiredModule) {
         } catch (requiredError) {
             if (jeliUtils.isNotFoundError(requiredError)) {
                 try {
-                    return require('import-global')(requiredModule)
+                    return require(requiredModule)
                 } catch (importError) {
                     if (jeliUtils.isNotFoundError(importError)) {
                         jeliUtils.console.write(

@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 
 const semver = require('semver')
+const path = require('path');
 const requiredVersion = require('../package.json').engines.node
+// local version
 const levenAsync = import('leven')
-const jeliUtils = require('../lib/utils/index');
+const localNodeModules = path.join(process.cwd(), 'node_modules/@jeli/cli');
+const localVersion = require(`${localNodeModules}/package.json`).version;
+const useLocalDep = dep => require(`${localVersion ? localNodeModules:'..'}${dep}`);
+const jeliUtils = useLocalDep('/lib/utils/index');
 
 function checkNodeVersion(wanted, id) {
     if (!semver.satisfies(process.version, wanted)) {
@@ -16,7 +21,7 @@ function checkNodeVersion(wanted, id) {
 checkNodeVersion(requiredVersion, '@jeli/cli');
 const minimist = require('minimist')
 const program = require('commander');
-const cliCommander = require('../lib/utils/commander');
+const cliCommander = useLocalDep('/lib/utils/commander');
 
 program
     .version(`@jeli/cli ${require('../package').version}`)
@@ -32,7 +37,7 @@ program
             jeliUtils.console.warn('\n Info: You provided more than one argument. The first one will be used as the app\'s name, the rest are ignored.')
         }
 
-        require('../lib/create')(name, options);
+        useLocalDep('/lib/create')(name, options);
     });
 
 program
@@ -90,7 +95,7 @@ program
     .command('info')
     .description('print debugging information about your environment')
     .action(_ => {
-        const { cliInfo } = require('../lib/info');
+        const { cliInfo } = useLocalDep('/lib/info');
         jeliUtils.console.write(jeliUtils.writeColor('\nEnvironment Info:', 'bold'));
         cliInfo();
     })
@@ -99,7 +104,7 @@ program
     .command('remove <project-name>')
     .description('removes project from workspace')
     .action((entry, cmd) => {
-        require('../lib/remove')(entry, cmd);
+        useLocalDep('/lib/remove')(entry, cmd);
     })
 
 program
@@ -108,7 +113,7 @@ program
     .option('-c, --components <components>', 'Specify list of components to create. e.g [mers] = module,element,router,service')
     .description('generate a new (Element|Directive|Service|Module). Enter type c to generate multiple components')
     .action((type, pathName, cmd) => {
-        require('../lib/generator')(type.toLowerCase(), pathName, cmd)
+        useLocalDep('/lib/generator')(type.toLowerCase(), pathName, cmd)
     })
 
 // output help information on unknown commands

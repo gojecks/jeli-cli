@@ -1028,7 +1028,6 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         for (const n in pendingElements[ctor.selector]) {
             while (pendingElements[ctor.selector][n][1].length) {
                 const ast = pendingElements[ctor.selector][n][1].shift();
-                console.log(componentClassName)
                 attachContentChildPlace(pendingElements[ctor.selector][n][0], ast, query);
             }
         }
