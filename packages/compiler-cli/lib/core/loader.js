@@ -95,9 +95,16 @@ exports.resolveDependency = (dep, resolveOptions) => {
      */
     if (helper.is(dep.charAt(0), '.')) {
         return null;
-    } else if (resolveOptions.alias && resolveOptions.alias.hasOwnProperty(dep)) {
-        return _resolveModule(resolveOptions.alias[dep]);
+    } else if (resolveOptions.alias) {
+        for (var rPath in resolveOptions.alias) {
+            if (rPath === dep) return _resolveModule(resolveOptions.alias[dep]);
+            else if(dep.startsWith(rPath)) {
+                const depPath = path.join(resolveOptions.alias[rPath], dep.replace(rPath, ''));
+                return _resolveModule(depPath, true);
+            }
+        }
     }
+
 
     for (const resolvePath of resolveOptions.paths) {
         const depPath = path.join(resolvePath, dep);
@@ -119,10 +126,18 @@ exports.resolveDependency = (dep, resolveOptions) => {
             };
         }
     }
-
-    function _resolveModule(depPath) {
+    
+    /**
+     * 
+     * @param {*} depPath 
+     * @param {*} checkForFile
+     * @returns 
+     */
+    function _resolveModule(depPath, checkForFile) {
         const ext = path.extname(depPath);
         if (ext && supportedFiles.includes(ext)) return { source: depPath };
+        // deps path exists and is a file
+        if (checkForFile && fs.existsSync(`${depPath}.js`)) return { source: `${depPath}.js` };
 
         const pkgJson = exports.getPackageJson(depPath);
         if (pkgJson) {
@@ -146,6 +161,7 @@ exports.resolveDependency = (dep, resolveOptions) => {
 
     return null;
 }
+
 
 /**
  * 

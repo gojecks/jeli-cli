@@ -1,5 +1,4 @@
 const jeliUtils = require('@jeli/cli/lib/utils');
-const jeliCompiler = require('@jeli/compiler-cli');
 const path = require('path');
 const fs = require('fs');
 
@@ -34,6 +33,7 @@ const getPackageJson = folder => {
  */
 exports.build = async function build(entry, options, startDevServer) {
     const jeliSchemaJSON = getSchema();
+    const jeliCompiler = require(options.compilerPath);
     entry = entry || jeliSchemaJSON.default;
     if (!jeliSchemaJSON.projects.hasOwnProperty(entry)) {
         jeliUtils.abort(`\n unable to find project ${entry} in schema`);
@@ -90,6 +90,7 @@ exports.build = async function build(entry, options, startDevServer) {
  */
 exports.serve = async function(entry, options) {
     const { genServerOptions, attachListeners, cleanup } = require('./lib/server/utils');
+    const jeliCompiler = require(options.compilerPath);
     const os = require('os');
     const httpServer = require('./lib/server/create');
     const opener = require('opener');

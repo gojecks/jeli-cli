@@ -638,7 +638,7 @@ async function resolveModules(compilerObject, fileChanged, bootStrapModulePath) 
      */
     async function generateModuleDeps(filePath, allowBuild) {
         const isRequired = (req.type === 'require');
-        if (allowBuild) {
+        if (allowBuild && Array.isArray(req.source)) {
             let defaultModuleImports = {};
             if (!isRequired) {
                 defaultModuleImports = extendImportExport(filePath, compilerObject, req.source, (bootStrapModulePath == filePath));
@@ -680,6 +680,7 @@ function extractModuleImpExp(compilerObject, modulePath, sourceDefinition) {
     const cache = { imp: ["@jeli/core"], exp: [] };
     const ret = { imp: [{ source: "@jeli/core", specifiers: [] }], exp: [], replace: {}, localImp: [], ns: [] };
     const isLazyLoaded = filePath => compilerObject.files[filePath].lazyLoadModulePath;
+    const index = getIndex(modulePath);
     /**
      * 
      * @param {*} item 
@@ -698,32 +699,40 @@ function extractModuleImpExp(compilerObject, modulePath, sourceDefinition) {
         }
     };
 
+    const recurImports = (depPath, recur=false) => {
+        const itemImps = compilerObject.files[depPath];
+        itemImps.imports.forEach(cItem => {
+            if (!compilerObject.globalImports.hasOwnProperty(cItem.source)) {
+                if (!isLazyLoaded(cItem.absolutePath)) {
+                    ret.imp.push(cItem);
+                } else if (!cache.exp.includes(cItem.absolutePath)) {
+                    if (cItem.nameSpace) {
+                        ret.ns.push(cItem);
+                        ret.imp.push(cItem);
+                    } else {
+                        ret.localImp.push(cItem);
+                    }
+                    cache.exp.push(cItem.absolutePath);
+                }
+                // trigger imports of dep
+                if (recur)
+                    recurImports(cItem.absolutePath);
+            } else {
+                pushItem(cItem, 'imp', true);
+            }
+        });
+    };
+
     for (item of definition.imports) {
         const local = (item.specifiers.length && item.specifiers[0].local);
         const impIndex = fnDefinitions.indexOf(local);
         // !local || impIndex > -1
         if (isLazyLoaded(item.absolutePath)) {
+            if (cache.exp.includes(item.absolutePath)) continue;
             ret.exp.splice(impIndex, 0, item);
             cache.exp.push(item.absolutePath);
             // check what each file imports 
-            const itemImps = compilerObject.files[item.absolutePath];
-            itemImps.imports.forEach(cItem => {
-                if (!compilerObject.globalImports.hasOwnProperty(cItem.source)) {
-                    if (!isLazyLoaded(cItem.absolutePath)) {
-                        ret.imp.push(cItem);
-                    } else if (!cache.exp.includes(cItem.absolutePath)) {
-                        if (cItem.nameSpace) {
-                            ret.ns.push(cItem);
-                            ret.imp.push(cItem);
-                        } else {
-                            ret.localImp.push(cItem);
-                        }
-                        cache.exp.push(cItem.absolutePath);
-                    }
-                } else {
-                    pushItem(cItem, 'imp', true);
-                }
-            });
+            recurImports(item.absolutePath, true);
         } else {
             pushItem(item, 'imp', true);
         }

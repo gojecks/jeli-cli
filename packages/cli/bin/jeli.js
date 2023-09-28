@@ -3,12 +3,40 @@
 const semver = require('semver')
 const path = require('path');
 const requiredVersion = require('../package.json').engines.node
+const jeliUtils = require('../lib/utils');
 // local version
 const levenAsync = import('leven')
-const localNodeModules = path.join(process.cwd(), 'node_modules/@jeli/cli');
-const localVersion = require(`${localNodeModules}/package.json`).version;
-const useLocalDep = dep => require(`${localVersion ? localNodeModules:'..'}${dep}`);
-const jeliUtils = useLocalDep('/lib/utils/index');
+const localNodeModules = path.join(process.cwd(), 'node_modules/');
+let localVersion =  null;
+try {
+   // localVersion = require(`${localNodeModules}/@jeli/cli/package.json`).version
+} catch(e){ }
+
+const getDepPath = dep  => `${localVersion ? localNodeModules : '' }${dep}`;
+const useLocalDep = (dep, commandName) => {
+    const depPath = getDepPath(dep);
+    try {
+        return require(depPath);
+    } catch (requiredError) {
+        if (jeliUtils.isNotFoundError(requiredError)) {
+            try {
+                return require(depPath)
+            } catch (importError) {
+                if (jeliUtils.isNotFoundError(importError)) {
+                    jeliUtils.console.write(
+                            `\n  Command ${jeliUtils.writeColor(`jeli ${commandName}`, 'cyan')} requires ${dep} to be installed.\n` +
+                    `  Please run ${jeliUtils.writeColor(`npm install ${dep}`, 'cyan')} and try again. \n`
+                )
+                    process.exit(1)
+                } else {
+                    throw importError;
+                }
+            }
+        } else {
+            throw requiredError;
+        }
+   }
+};
 
 function checkNodeVersion(wanted, id) {
     if (!semver.satisfies(process.version, wanted)) {
@@ -21,7 +49,6 @@ function checkNodeVersion(wanted, id) {
 checkNodeVersion(requiredVersion, '@jeli/cli');
 const minimist = require('minimist')
 const program = require('commander');
-const cliCommander = useLocalDep('/lib/utils/commander');
 
 program
     .version(`@jeli/cli ${require('../package').version}`)
@@ -37,7 +64,7 @@ program
             jeliUtils.console.warn('\n Info: You provided more than one argument. The first one will be used as the app\'s name, the rest are ignored.')
         }
 
-        useLocalDep('/lib/create')(name, options);
+        useLocalDep('@jeli/cli/lib/create', 'create')(name, options);
     });
 
 program
@@ -48,9 +75,10 @@ program
     .option('--configuration <configiration>', 'choose configuration to compile with')
     .option('--prod', 'build application for production')
     .action((entry, args) => {
-        cliCommander('build', '@jeli/dev-cli').build(entry, {
+        useLocalDep('@jeli/dev-cli', 'build').build(entry, {
             configuration: args.configuration,
-            buildOptions: jeliUtils.extractArgs(['cwd', 'prod', 'version'], args)
+            buildOptions: jeliUtils.extractArgs(['cwd', 'prod', 'version'], args),
+            compilerPath: getDepPath('@jeli/compiler-cli')
         })
     })
 
@@ -73,7 +101,8 @@ program
     .action((entry, args) => {
         const root = `./node_modules/.jeliCache/serve/${entry || 'main'}/`;
         const serverOptions = jeliUtils.extractArgs('ssl,cert,key,proxy,username,password,timeout,gzip,port,host,open'.split(','), args);
-        cliCommander('serve', '@jeli/dev-cli').serve(entry, {
+        useLocalDep('@jeli/dev-cli', 'serve').serve(entry, {
+            compilerPath: getDepPath('@jeli/compiler-cli'),
             configuration: args.connfiguration || 'serve',
             buildOptions: {
                 cwd: args.cwd,
@@ -95,7 +124,7 @@ program
     .command('info')
     .description('print debugging information about your environment')
     .action(_ => {
-        const { cliInfo } = useLocalDep('/lib/info');
+        const { cliInfo } = useLocalDep('@jeli/cli/lib/info');
         jeliUtils.console.write(jeliUtils.writeColor('\nEnvironment Info:', 'bold'));
         cliInfo();
     })
@@ -104,7 +133,7 @@ program
     .command('remove <project-name>')
     .description('removes project from workspace')
     .action((entry, cmd) => {
-        useLocalDep('/lib/remove')(entry, cmd);
+        useLocalDep('@jeli/cli/lib/remove', 'remove')(entry, cmd);
     })
 
 program
@@ -113,7 +142,7 @@ program
     .option('-c, --components <components>', 'Specify list of components to create. e.g [mers] = module,element,router,service')
     .description('generate a new (Element|Directive|Service|Module). Enter type c to generate multiple components')
     .action((type, pathName, cmd) => {
-        useLocalDep('/lib/generator')(type.toLowerCase(), pathName, cmd)
+        useLocalDep('@jeli/cli/lib/generator', 'new')(type.toLowerCase(), pathName, cmd)
     })
 
 // output help information on unknown commands

@@ -8,11 +8,11 @@ const helper = require('@jeli/cli/lib/utils');
 const { matchViewQueryFromAstNode } = require('./query_selector');
 const restrictedCombination = ['j-template', 'j-place', 'case', 'default'];
 const isFragmentElement = tagName => ["j-fragment", "j-template", "j-place", 'template'].includes(tagName);
-const formInputs = ['select', 'input', 'textarea'];
 const standardAttributes = 'id|class|style|title|dir|lang|aria';
 const isComponent = tagName => helper.isContain('-', tagName) && !isFragmentElement(tagName);
 const oneWayBinding = /\{(.*?)\}/;
 const twoWayBinding = /\@\{(.*?)\}/;
+const isFnCallRegEx = /\w\((.*?)\)/;
 const charMatchers = [':', '*', '#', '@', '{', '('];
 const TEMPLATE_KEY = key => `<%${key}%>`;
 const selectorTypes = {
@@ -104,6 +104,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             if (helper.is(ast.name, 'j-place')) {
                 jPlaceCompiler(newAstNode, parent);
             }
+
             return buildStructuralDirectiveTemplates(newAstNode, parent);
         }
 
@@ -163,9 +164,9 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                 errorLogs.push(`ContentChild(ren) query does not currently support structural directive "${childAst.text}" -> ${matched.name}=${matched.value}`);
                 return;
             }
-
+            
             // args to be pushed to contentChildren method
-            const qlAstNode = [matched.type || 'TemplateRef', matched.ql];
+            const qlAstNode = [matched.type || (childAst.type == 1 ? 'ElementRef' : 'TemplateRef'), matched.ql];
             const name = matched.name || matched.value;
             // const id = !contentChildrenMapper[parentAstNode.name] ? 
             if (!parentAstNode.cq)
@@ -192,7 +193,6 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                 pendingDependencies = true;
                 return;
             }
-
             attachContentChildPlace(parentAstNode, childAst, query);
         }
     }
@@ -212,7 +212,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             }
 
             if (!parentAstNode.templates.place[id]) {
-                parentAstNode.templates.place[id] = []
+                parentAstNode.templates.place[id] = [];
             }
 
             // push all children if childAst is a fragment
@@ -224,17 +224,27 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         };
 
         const refs = Object.keys(query.place);
+        let astName = childAst.name;
+        let astRefId = childAst.refId;
+        let attr  = childAst.attr;
+        // checker for structural directive
+        if (helper.is(childAst.type, 8)) {
+            astName = childAst.templates[childAst.text].name;
+            astRefId = childAst.templates[childAst.text].refId;
+            attr  = childAst.templates[childAst.text].attr;
+        }
+
         if (refs.length === 1 && refs[0] === '@') {
             pushToPlace('@');
-        } else if (childAst.refId && query.place[childAst.refId]) {
-            pushToPlace(childAst.refId);
-        } else if (query.place[childAst.name]) {
-            pushToPlace(childAst.name)
-        } else if (childAst.attr) {
+        } else if (astRefId && query.place[astRefId]) {
+            pushToPlace(astRefId);
+        } else if (query.place[astName]) {
+            pushToPlace(astName)
+        } else if (attr) {
             // [id, class, attr]
             for (const ref in query.place) {
-                const prop = (childAst.attr[query.place[ref]] || '').split(/\s/g);
-                if ((childAst.attr.hasOwnProperty(ref) && query.place[ref] === 'attr') || (prop.includes(ref))) {
+                const prop = (attr[query.place[ref]] || '').split(/\s/g);
+                if ((attr.hasOwnProperty(ref) && query.place[ref] === 'attr') || (prop.includes(ref))) {
                     pushToPlace(ref);
                     return;
                 }
@@ -296,15 +306,16 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
      * @param {*} astNode 
      * @param {*} parent 
      */
-    function buildStructuralDirectiveTemplates(astNode) {
+    function buildStructuralDirectiveTemplates(astNode, parent) {
         const definition = astNode.structuralDirective;
         delete astNode.structuralDirective;
-        switch (definition.dirName) {
-            case ('if'):
-                return jIfCompiler(definition, astNode);
-            default:
-                return createDefaultTemplate(definition, astNode);
+        if (definition.dirName == 'if'){
+            astNode = jIfCompiler(definition, astNode);
+        } else {
+            astNode = createDefaultTemplate(definition, astNode);
         }
+        
+        return astNode;
     }
 
     /**
@@ -359,12 +370,14 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         // set element to singleNode if single child 
         const len = (astNode && astNode.children) ? astNode.children.length : 0;
         const refId = astNode.refId;
-        const hasUseAttr = astNode.attr && astNode.attr.use;
+        const hasUseAttr = astNode.attr ? astNode.attr.use : null;
         if (hasUseAttr && len === 1) {
             errorLogs.push(`<j-template> element does not support child elements with 'use' attribute. <j-template #${refId} use="${astNode.attr.use}"/ >`);
             return null;
         }
 
+        if (!len && !hasUseAttr) return null;
+        
         if (len === 1) {
             astNode = astNode.children[0];
             if (typeof astNode == 'object') {
@@ -372,13 +385,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             }
         } else if (hasUseAttr) {
             astNode = TEMPLATE_KEY(hasUseAttr);
-        } else if (!len) {
-            return null;
         }
-
-        //  if (outletElement.context) {
-        //     generateOutletContext(outletElement);
-        // }
 
         if (parentAst && parentAst.name && parentAst.isc) {
             attachContentChildren(parentAst, hasUseAttr ? { refId: hasUseAttr, name: '#', children: [astNode] } : astNode);
@@ -419,24 +426,27 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                     resolvedElements[ctor.selector].query.place = ctor.place;
                 }
             }
+
             ctor.place[key] = value;
             // attach query selector to astNode
             astNode.refId = key;
         };
+
+
 
         astNode.type = 11;
         if (astNode.attr) {
             if (astNode.attr.selector) {
                 var firstChar = astNode.attr.selector.charAt(0);
                 attachPlaceToCtor(astNode.attr.selector.replace(/[\[\].#]/g, ''), selectorTypes[firstChar] || 'name');
-            } else if (astNode.attr.template) {
+            } else if (astNode.attr.template || astNode.attr.refId) {
                 attachPlaceToCtor(astNode.attr.template, '#');
             }
 
             // remove the element
             delete astNode.attr;
         } else {
-            attachPlaceToCtor('@', '@')
+            attachPlaceToCtor(astNode.refId || '@', astNode.refId ? '#':'@')
         }
 
         return astNode;
@@ -475,7 +485,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                     $templateId: templateId,
                     context: astNode.context,
                     _GT: TEMPLATE_KEY('GT')
-                }
+                };
             }
         }
 
@@ -612,6 +622,9 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         else if (helper.isContain('data-', node)) {
             var propName = helper.camelCase(node.replace('data-', ''));
             setObjectType(astNode, 'data', propName, value || propName);
+        } else if (helper.isContain('aria-', node)) {
+            var propName = helper.camelCase(node.replace('aria-', ''));
+            setObjectType(astNode, 'aria', propName, value);
         } else if (interpolation.hasTemplateBinding(value)) {
             setObjectType(astNode, 'attr$', node, astTextParser(value, true));
         } else {
@@ -653,7 +666,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
          */
         function addDirectives(name, value, fChar, hasBinding = false) {
             var isDetachedElem = helper.is(fChar, '*');
-            name = name.substr(1, name.length);
+            name = name.substr(1);
             const dirName = name;
             // mock props for querySelector
             const props = {
@@ -689,7 +702,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                 case (':'):
                 case ('*'):
                     if (value && value.match(interpolation.getDelimeter())) {
-                        errorLogs.push(
+                       return errorLogs.push(
                             `[${node}] templating not allowed in directive binding.\n To add binding to a directive use the curly braces {${node}}`
                         );
                     }
@@ -697,7 +710,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                     addDirectives(node, value, fChar);
                     break;
                 /**
-                 * template Node
+                 * template Node refId
                  */
                 case ('#'):
                     astNode.refId = node.substring(1, node.length);
@@ -706,11 +719,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                  * Event Node
                  */
                 case ('@'):
-                    if (twoWayBinding.test(node)) {
-                        _pasrseTwoWayBinding(node);
-                    } else {
-                        _parseEventBinding(node);
-                    }
+                    _determineEventBinding(node);
                     break;
                 case ('{'):
                     _parseOneWayBinding(node);
@@ -719,18 +728,34 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         }
 
         /**
-         * @{:model}="twoWayBinding"
-         * @param {*} binding 
+         * Determine eventBinding types
+         * @param {*} node 
+         * 
          */
-        function _pasrseTwoWayBinding(binding) {
-            let prop = binding.match(twoWayBinding)[1];
+        function _determineEventBinding(node) {
+            const isOneWay = node.startsWith('@:');
+            if (twoWayBinding.test(node) || isOneWay) {
+                _pasrseTwoWayBinding(node, isOneWay);
+            } else {
+                _parseEventBinding(node);
+            }
+        }
+
+        /**
+         * @{:model}="twoWayBinding"
+         *  @:customDirective="outputHandler($event)"
+         * @param {*} node
+         * @param {*} isOneWay
+         */
+        function _pasrseTwoWayBinding(node, isOneWay) {
+            let prop = isOneWay ? node.substring(1) : node.match(twoWayBinding)[1];
             if (helper.isContain(':', prop.charAt(0))) {
                 addDirectives(prop, value, ':', true);
-                prop = prop.substr(1, prop.length);
+                prop = prop.substr(1);
             }
             setArrayType(astNode, 'events', {
                 name: `${prop}Change`,
-                value: parseAst(`${value}=$event`),
+                value: parseAst(isFnCallRegEx.test(value) ? value : `${value.split('|')[0]}=$event`),
                 custom: true
             });
         }
@@ -877,9 +902,18 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
          * check if an observer was already registered
          * and the observer is not registered to attribute prop
          */
-        if (astNode.attr$ && astNode.attr$.hasOwnProperty(name) && !helper.is(prop, 'attr')) {
-            value = astNode.attr$[name];
-            delete astNode.attr$[name];
+        if (astNode.attr$ && astNode.attr$.hasOwnProperty(name) && (prop != 'attr')) {
+            // push styles into array if already registered
+            if (name == 'style'){
+                if (!Array.isArray(astNode.attr$[name])){
+                    value = [astNode.attr$[name], value];
+                } else {
+                    value = astNode.attr$[name].push(value);
+                }
+            } else {
+                value = oldValue;
+                delete astNode.attr$[name];
+            }
         }
 
         if (!astNode[prop]) {
@@ -894,6 +928,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             value.prop = expressionAst(value.prop);
             value = binding ? value : value.prop;
         }
+        
         astNode[prop][name] = value;
     }
 
@@ -1024,13 +1059,16 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
 
     // check for unresolved Element childContent
     if (pendingElements[ctor.selector]) {
-        const query = resolvedElements[ctor.selector].query;
-        for (const n in pendingElements[ctor.selector]) {
-            while (pendingElements[ctor.selector][n][1].length) {
-                const ast = pendingElements[ctor.selector][n][1].shift();
-                attachContentChildPlace(pendingElements[ctor.selector][n][0], ast, query);
+        if (resolvedElements[ctor.selector]) {
+            const query = resolvedElements[ctor.selector].query;
+            for (const n in pendingElements[ctor.selector]) {
+                while (pendingElements[ctor.selector][n][1].length) {
+                    const ast = pendingElements[ctor.selector][n][1].shift();
+                    attachContentChildPlace(pendingElements[ctor.selector][n][0], ast, query);
+                }
             }
         }
+
         // remove from pending elements
         delete pendingElements[ctor.selector];
     }

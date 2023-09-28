@@ -105,7 +105,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
             if (template) {
                 const parsedHtml = htmlParser(template, obj, componentsResolver, definition.fn, !!changes);
                 if (parsedHtml.errorLogs.length) {
-                    helper.console.header(`TemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
+                    helper.console.header(`\nTemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
                     parsedHtml.errorLogs.forEach(helper.console.error);
                 }
 
@@ -260,7 +260,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
             }
 
             const implementation = compilerObject.output.modules[filePath];
-            if (implementation.annotations) {
+            if (implementation && implementation.annotations) {
                 for (const annotation of implementation.annotations) {
                     compile(annotation, filePath);
                     if (!annotation.pending) {
