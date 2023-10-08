@@ -287,10 +287,15 @@ async function CoreGenerator(componentsResolver, entry, changes) {
 }
 
 exports.generateApp = async function (componentsResolver, name, changes) {
-    if (changes && changes.isStyles) {
-        styleChanges(componentsResolver.compilerObject, changes);
-    } else {
-        await CoreGenerator(componentsResolver, name, changes);
+    try {
+        if (changes && changes.isStyles) {
+            styleChanges(componentsResolver.compilerObject, changes);
+        } else {
+            await CoreGenerator(componentsResolver, name, changes);
+        }
+    } catch(e) {
+        // throw new Error('Core: Failed to compile application')
+        console.error(e)
     }
 };
 

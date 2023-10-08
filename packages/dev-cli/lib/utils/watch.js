@@ -3,7 +3,6 @@ module.exports = async(folders, callback) => {
     /**
      * start watching for file changes
      */
-
     const watcher = chokidar.watch('.', {
         ignored: /(^|[\/\\])\../, // ignore dotfiles
         persistent: true,
