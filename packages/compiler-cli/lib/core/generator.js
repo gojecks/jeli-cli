@@ -26,7 +26,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
      * 
      * @param {*} definition 
      */
-    function compile(definition, filePath) {
+    async function compile(definition, filePath) {
         let obj = null;
         let ctorAttrs = [];
         switch (definition.type.toLowerCase()) {
@@ -51,7 +51,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
                 ctorAttrs = ['selector', 'events', 'exposeView', 'props', 'DI', 'resolve', 'exportAs']
                 attachCtorToDefinition();
                 if (helper.is(definition.type, 'Element')) {
-                    generateElementAst();
+                    await generateElementAst();
                 }
                 break;
             case ('jmodule'):
@@ -76,7 +76,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
             helper.quoteFix(annotationProps, obj);
         }
 
-        function generateElementAst() {
+        async function generateElementAst() {
             let template = obj.template;
             let styleUrl = obj.styleUrl;
             const style = obj.style;
@@ -87,7 +87,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
 
             // style parser
             if (style || styleUrl) {
-                pushStyle({
+                await pushStyle({
                     name: definition.fn,
                     selector: obj.selector,
                     style,
@@ -232,10 +232,10 @@ async function CoreGenerator(componentsResolver, entry, changes) {
         return `/** compiled ${definition.fn} **/\nvar ${definition.fn} = function(){\n"use strict";\n\n${definition.annotations.join('\n\n')}\nreturn ${definition.fn};\n}();\n`;
     }
 
-    function compileModules() {
+    async function compileModules() {
         const pendingCompilation = [];
         for (const filePath in compilerObject.output.modules) {
-            scriptGeneratorParser(filePath);
+            await scriptGeneratorParser(filePath);
         }
         // recompile all pending scripts
         if (pendingCompilation.length) {
@@ -254,7 +254,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
          * 
          * @param {*} filePath 
          */
-        function scriptGeneratorParser(filePath) {
+        async function scriptGeneratorParser(filePath) {
             if (changes && changes.filePath && !helper.is(changes.filePath, filePath)) {
                 return;
             }
@@ -262,7 +262,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
             const implementation = compilerObject.output.modules[filePath];
             if (implementation && implementation.annotations) {
                 for (const annotation of implementation.annotations) {
-                    compile(annotation, filePath);
+                    await compile(annotation, filePath);
                     if (!annotation.pending) {
                         implementation.source.push(generateScript(annotation));
                     } else {
@@ -273,7 +273,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
         }
     }
 
-    compileModules();
+    await compileModules();
 
     /**
      * save files
