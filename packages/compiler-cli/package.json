@@ -37,7 +37,9 @@
     "uglify-js": "^3.17.4",
     "lodash.template": "^4.5.0",
     "css": "^3.0.0",
-    "node-sass": "^8.0.0"
+    "postcss":"^8.4.0",
+    "autoprefixer":"^10.4.16",
+    "postcss-nested":"6.0.1"
   },
   "bin": {
     "jeli-compiler": "bin/compiler.js"
