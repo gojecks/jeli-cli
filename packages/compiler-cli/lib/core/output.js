@@ -11,18 +11,11 @@ const PATTERN = {
     DEFAULT: 'DEFAULT'
 };
 const cssFileHolder = new Map();
-let nodeSass = null;
-
-/**
- * handle node sass error
- */
-try {
-    nodeSass = require('node-sass');
-} catch (e) {
-    helper.abort(`\n${e.message}`);
-}
-
 exports.PATTERN = PATTERN;
+const autoprefixer = require('autoprefixer')
+const postcss = require('postcss')
+const postcssNested = require('postcss-nested')
+
 /**
  * 
  * @param {*} fileName 
@@ -213,8 +206,8 @@ exports.saveApplicationView = async function (compilerObject) {
  * @param {*} config 
  * @param {*} folder 
  */
-exports.pushStyle = (config, append) => {
-    let result = parseStyle(config);
+exports.pushStyle = async (config, append) => {
+    let result = await parseStyle(config);
     if (!result || !(result.substring(1, result.length - 2))) return;
     result = helper.stringifyContent(result);
 
@@ -788,17 +781,20 @@ async function writeLazyLoadModules(compilerObject, isProd) {
     }
 }
 
-function parseStyle(config) {
+async function parseStyle(config) {
     const style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
     if (!style) return undefined;
     try {
-        return nodeSass.renderSync({
-            data: attachSelector(style),
-            outputStyle: 'compressed',
-            outFile: config.outFile,
-            sourceMap: false,
-            importer: urlLoader
-        }).css.toString();
+       const result =  await postcss([autoprefixer, postcssNested])
+        .process(attachSelector(style), {from:config.styleUrl, to: config.outFile});
+        return result.css.toString();
+        // return nodeSass.renderSync({
+        //     data: ,
+        //     outputStyle: 'compressed',
+        //     outFile: config.outFile,
+        //     sourceMap: false,
+        //     importer: urlLoader
+        // }).css.toString();
     } catch (e) {
         console.log(`styling error: ${e.message || e} for ${config.styleUrl}`);
         return "";
@@ -842,9 +838,7 @@ async function writeCss(options, isLib = false) {
     let styles = [];
     if (options.output.styles) {
         for (const style of options.output.styles) {
-            exports.pushStyle({
-                styleUrl: style
-            }, styles);
+            await exports.pushStyle({  styleUrl: style }, styles);
         }
     }
 
