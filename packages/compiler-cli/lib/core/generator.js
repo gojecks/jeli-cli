@@ -103,7 +103,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
             }
 
             if (template) {
-                const parsedHtml = htmlParser(template, obj, componentsResolver, definition.fn, !!changes);
+                const parsedHtml = htmlParser(template, obj, componentsResolver, definition.fn, !!changes, compilerObject.buildOptions.assetURL);
                 if (parsedHtml.errorLogs.length) {
                     helper.console.header(`\nTemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
                     parsedHtml.errorLogs.forEach(helper.console.error);

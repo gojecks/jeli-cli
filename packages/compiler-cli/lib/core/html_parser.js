@@ -6,6 +6,7 @@ const { parseAst, parseAstJSON } = require('./ast.generator');
 const interpolation = require('./interpolation');
 const helper = require('@jeli/cli/lib/utils');
 const { matchViewQueryFromAstNode } = require('./query_selector');
+const { rewriteUrl, rewriteBkgUrl } = require('./rules');
 const restrictedCombination = ['j-template', 'j-place', 'case', 'default'];
 const isFragmentElement = tagName => ["j-fragment", "j-template", "j-place", 'template'].includes(tagName);
 const standardAttributes = 'id|class|style|title|dir|lang|aria';
@@ -31,9 +32,10 @@ const pendingElements = {};
  * @param {*} resolvers 
  * @param {*} componentClassName 
  * @param {*} fileChanges 
+ * @param {*} assetURL 
  * @returns 
  */
-module.exports = function (htmlContent, ctor, resolvers, componentClassName, fileChanges) {
+module.exports = function (htmlContent, ctor, resolvers, componentClassName, fileChanges, assetURL) {
     // removed resolved elements from cache if exists
     if (resolvedElements[ctor.selector] && fileChanges) {
         delete resolvedElements[ctor.selector];
@@ -72,7 +74,6 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             type: 1,
             name: isFragmentElement(ast.name) ? "#" : ast.name,
             index: idx,
-            // attach isComponent property
             isc: isComponent(ast.name)
         };
 
@@ -86,7 +87,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             removeUnmappedProps(newAstNode);
         }
 
-        // throw Error when Element calls itsel
+        // throw Error when Element calls itself
         if (newAstNode.isc) {
             _validateCustomElementAndThrowError(newAstNode);
         }
@@ -628,6 +629,15 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         } else if (interpolation.hasTemplateBinding(value)) {
             setObjectType(astNode, 'attr$', node, astTextParser(value, true));
         } else {
+            // check for inline attr that requires update of value e.g src, inline styling
+            if (assetURL && ((node == 'src' && !value.includes('//')) || (node == 'style' && value.includes('url')))){
+                if (node == 'src') {
+                    value = rewriteUrl(value, assetURL);
+                } else if(node == 'style') { // backgroundImage parser
+                    value = rewriteBkgUrl(value, assetURL);
+                }
+            }
+            
             setObjectType(astNode, 'attr', node, helper.simpleArgumentParser(value));
         }
 
@@ -911,7 +921,6 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                     value = astNode.attr$[name].push(value);
                 }
             } else {
-                value = oldValue;
                 delete astNode.attr$[name];
             }
         }
@@ -1048,8 +1057,6 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
     function canSetValue(element) {
         isequal('input', EventHandler.getEventType(this.nativeElement));
     }
-
-
 
     var parsedContent = parser(htmlContent, {
         normalizeWhitespace: true,

@@ -16,7 +16,9 @@ const addExt = filePath => {
         filePath += '.js';
     }
     return filePath;
-}
+};
+
+const getFilePath = (filePath, fileName) => path.join(filePath, '..', helper.removeSingleQuote(fileName));
 
 /**
  * 
@@ -175,16 +177,21 @@ function addAbsolutePath(importItem, absolutePath, isLib) {
  */
 function extractRequired(currentInstance, source, filePath) {
     return source.replace(/(require|lazyload)\((.*?)\)/g, (_, key, value) => {
-        value = path.join(filePath, '..', helper.removeSingleQuote(value));
         if (key === 'require') {
-            currentInstance.addOutPutEntry(value, {
-                type: key,
-                path: value,
-                source: [loader.readFile(value)]
-            });
-            return `__required(${getIndex(value)}, 'exports')`;
+            const ext = path.extname(value);
+            if (ext) {
+                value = getFilePath(filePath, value);
+                currentInstance.addOutPutEntry(value, {
+                    type: key,
+                    path: value,
+                    source: [loader.readFile(value)]
+                });
+                return `__required(${getIndex(value)}, 'exports')`;
+            }
+            // return value for a normal injector
+            return `__required(${value})`;
         } else {
-            value = addExt(value);
+            value = addExt(getFilePath(filePath, value));
             currentInstance.pushToLazyLoads(value)
             return `__required.l(${getIndex(value)})`;
         }

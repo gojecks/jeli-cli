@@ -14,7 +14,8 @@ const cssFileHolder = new Map();
 exports.PATTERN = PATTERN;
 const autoprefixer = require('autoprefixer')
 const postcss = require('postcss')
-const postcssNested = require('postcss-nested')
+const postcssNested = require('postcss-nested');
+const { rewriteBaseHref, rewriteSrcHref } = require('./rules');
 
 /**
  * 
@@ -125,7 +126,7 @@ exports.copyFiles = async compilerObject => {
 
 exports.copyAndUpdateAssetsFile = async (filePath, compilerObject, item) => {
     if (!fs.existsSync(filePath)) return;
-    const basename  = path.basename(item.src);
+    const basename = path.basename(item.src);
     const dest = `${compilerObject.options.output.folder}${basename}${filePath.split(basename)[1]}`;
     try {
         fs.copySync(filePath, dest, {
@@ -142,9 +143,9 @@ exports.copyAndUpdateAssetsFile = async (filePath, compilerObject, item) => {
  */
 exports.outputApplicationFiles = async function (compilerObject, changes) {
     const getBootStrapModule = filePath => {
-        for(const imp of compilerObject.files[filePath].imports) {
+        for (const imp of compilerObject.files[filePath].imports) {
             const fn = imp.specifiers[0].local;
-            if (compilerObject.jModule[fn]){
+            if (compilerObject.jModule[fn]) {
                 return imp.absolutePath;
             }
         }
@@ -166,12 +167,12 @@ exports.outputApplicationFiles = async function (compilerObject, changes) {
             const deps = [compilerObject.output.global];
             const bstDeps = extendImportExport(bootStrapFilePath, compilerObject, deps);
             const entry = writeGlobalImports(deps.join(''), bstDeps.$, false);
-            const buildArgs = JSON.stringify(compilerObject.buildOptions);
+            const buildArgs = getBuildArgs(compilerObject.buildOptions);
             let script = loadTemplate('default', { entry, main, buildArgs });
             await outputJSFiles(fileName, script, isProdBuild);
         } else {
             const lazyLoadModulePath = compilerObject.files[changesFilePath].lazyLoadModulePath;
-            if(changesFilePath && !compilerObject.output.lazyLoads.includes(lazyLoadModulePath)) {
+            if (changesFilePath && !compilerObject.output.lazyLoads.includes(lazyLoadModulePath)) {
                 compilerObject.output.lazyLoads.push(lazyLoadModulePath);
             }
         }
@@ -191,13 +192,20 @@ exports.outputApplicationFiles = async function (compilerObject, changes) {
 
 exports.saveApplicationView = async function (compilerObject) {
     const viewFilePath = path.join(compilerObject.options.sourceRoot, compilerObject.options.output.view);
+    const buildOptions = compilerObject.buildOptions;
     if (fs.existsSync(viewFilePath)) {
         const files = ['styles.js', compilerObject.entryFile];
-        const html = fs.readFileSync(viewFilePath, 'utf8').replace(/<\/body>/, _ => {
-            return files.map(file => `<script src="./${file}" type="text/javascript"></script>`).join('\n') + '\n' + _;
+        /**
+         * rewrite rules for index.html
+         * src and href will be rewritten if assetURL is defined
+         */
+        const assetUrl = (buildOptions.assetURL || '');
+        let indexContent = rewriteSrcHref(fs.readFileSync(viewFilePath, 'utf8'), assetUrl)
+        .replace(/<\/body>/, _ => {
+            return files.map(file => `<script src="${assetUrl}${file}" type="text/javascript"></script>`).join('\n') + '\n' + _;
         });
-
-        fs.writeFileSync(`${compilerObject.options.output.folder}${compilerObject.options.output.view}`, html);
+        indexContent = rewriteBaseHref(indexContent, buildOptions.baseHref || './');
+        fs.writeFileSync(`${compilerObject.options.output.folder}${compilerObject.options.output.view}`, indexContent);
     }
 };
 
@@ -385,7 +393,7 @@ async function buildByType(type, scriptBody, moduleName, compilerObject) {
         importsCJS: '',
         globalArgs: '',
         args: '',
-        buildOptions: JSON.stringify(compilerObject.buildOptions)
+        buildOptions: getBuildArgs(compilerObject.buildOptions)
     };
 
     const imports = createModuleImportation(compilerObject.globalImports, isModule);
@@ -518,7 +526,7 @@ function _writeImport(compilerObject, importItems, output, isExternalModule = tr
             index = getIndex(globalDepMeta.absolutePath);
             if (globalDepMeta.default) {
                 output.unshift(`var ${importItem.specifiers[0].imported} = __required(${index}, 'default');\n`);
-            }else {
+            } else {
                 if (!isExternalModule) {
                     defaultModuleImports.$[globalDepMeta.output.arg] = defaultModuleImports.$[globalDepMeta.output.arg] || [];
                     importItem.specifiers.forEach(specifier => {
@@ -692,7 +700,7 @@ function extractModuleImpExp(compilerObject, modulePath, sourceDefinition) {
         }
     };
 
-    const recurImports = (depPath, recur=false) => {
+    const recurImports = (depPath, recur = false) => {
         const itemImps = compilerObject.files[depPath];
         itemImps.imports.forEach(cItem => {
             if (!compilerObject.globalImports.hasOwnProperty(cItem.source)) {
@@ -775,7 +783,7 @@ async function writeLazyLoadModules(compilerObject, isProd) {
             _writeModuleStream(compilerObject, impExp.ns, modules, true);
             const sourceCode = writeGlobalImports(`{\n${modules.join(',\n')}\n}`, defaultModuleImports.$);
             await outputJSFiles(fileName, templateParser({ sourceCode }), isProd);
-        } catch(e) {
+        } catch (e) {
             console.log(`[OutPut] Error generating chunk module ${modulePath}, please try again`);
         }
     }
@@ -785,8 +793,8 @@ async function parseStyle(config) {
     const style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
     if (!style) return undefined;
     try {
-       const result =  await postcss([autoprefixer, postcssNested])
-        .process(attachSelector(style), {from:config.styleUrl, to: config.outFile});
+        const result = await postcss([autoprefixer, postcssNested])
+            .process(attachSelector(style), { from: config.styleUrl, to: config.outFile });
         return result.css.toString();
         // return nodeSass.renderSync({
         //     data: ,
@@ -838,7 +846,7 @@ async function writeCss(options, isLib = false) {
     let styles = [];
     if (options.output.styles) {
         for (const style of options.output.styles) {
-            await exports.pushStyle({  styleUrl: style }, styles);
+            await exports.pushStyle({ styleUrl: style }, styles);
         }
     }
 
@@ -856,4 +864,14 @@ async function writeCss(options, isLib = false) {
         styles = '';
         return true;
     }
+}
+
+function getBuildArgs(buildOptions){
+    return JSON.stringify({
+        buildTime:Date.now(),
+        version: buildOptions.version || '1.0.0',
+        baseHref: buildOptions.baseHref || '',
+        assetURL: buildOptions.assetURL || '',
+        production: buildOptions.prod || false
+    })
 }

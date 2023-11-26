@@ -7,9 +7,9 @@
 }, (function(modules,  self) { 
     'use strict';
     var OD = Object.defineProperty,
-    installedModules = {},
     dep_name = 'jeli_chunk_loaded',
     buildArgs = <%=buildArgs%>,
+    installedModules = {buildArgs},
     pendingLazyLoad = [];
     OD(self, dep_name, {
         set: function(value) {
@@ -32,7 +32,7 @@
 
     function loadScript(mid){
         var scriptElement = document.createElement('script');
-        var path = [buildArgs.deployURL || '', mid, ".js"].join('')
+        var path = [buildArgs.assetURL || '', mid, ".js"].join('')
         scriptElement.src = path;
         scriptElement.type = "module";
         scriptElement.async = true;

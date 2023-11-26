@@ -74,10 +74,12 @@ program
     .option('-v, --version <version>', 'version number to be built')
     .option('--configuration <configiration>', 'choose configuration to compile with')
     .option('--prod', 'build application for production')
+    .option('--baseHref', 'application contextPath or URL for resolving all assets')
+    .option('--assetURL', 'url where assets will be deployed, usesfull when resolving from a cdn')
     .action((entry, args) => {
         useLocalDep('@jeli/dev-cli', 'build').build(entry, {
             configuration: args.configuration,
-            buildOptions: jeliUtils.extractArgs(['cwd', 'prod', 'version'], args),
+            buildOptions: jeliUtils.extractArgs(['cwd', 'prod', 'version', 'baseHref', 'assetURL'], args),
             compilerPath: getDepPath('@jeli/compiler-cli')
         })
     })
@@ -103,7 +105,7 @@ program
         const serverOptions = jeliUtils.extractArgs('ssl,cert,key,proxy,username,password,timeout,gzip,port,host,open'.split(','), args);
         useLocalDep('@jeli/dev-cli', 'serve').serve(entry, {
             compilerPath: getDepPath('@jeli/compiler-cli'),
-            configuration: args.connfiguration || 'serve',
+            configuration: args.configuration || 'serve',
             buildOptions: {
                 cwd: args.cwd,
                 watch: true,
