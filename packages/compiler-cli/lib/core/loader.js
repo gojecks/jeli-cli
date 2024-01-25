@@ -3,6 +3,7 @@ const helper = require('@jeli/cli/lib/utils');
 const spinner = require('@jeli/cli/lib/utils/spinner');
 const fs = require('fs-extra');
 const glob = require('glob');
+const NotFoundException = require('../Exceptions/notfound');
 const REQUIRED_ID = 'ϕrequired';
 const supportedFiles = ['.js', '.jli'];
 const _fileCache_ = new Map();
@@ -25,7 +26,7 @@ exports.templateContentLoader = (filePath) => {
 exports.getFilePath = (tempPath, sourceRoot) => {
     tempPath = path.join(sourceRoot, tempPath);
     if (!fs.existsSync(tempPath)) {
-        helper.console.error(`unable to find file "${tempPath}"`);
+        throw new NotFoundException(`unable to find file "${tempPath}"`);
     }
 
     return tempPath;
@@ -47,8 +48,8 @@ exports.joinFilePath = (...args) => path.join.apply(path, args);
  * @returns 
  */
 exports.readFile = (filePath, ignoreCheck = false, saveToCache = false, buildOptionReplacer) => {
-    if (!ignoreCheck && !fs.existsSync(filePath)) {
-        throw new Error(`File "${helper.colors.yellow(filePath)}" does not exists`);
+    if (!ignoreCheck && !_fileCache_.has(filePath) && !fs.existsSync(filePath)) {
+        throw new NotFoundException(`File '${helper.colors.yellow(filePath)}' does not exists`);
     }
 
     /**
@@ -159,7 +160,7 @@ exports.resolveDependency = (dep, resolveOptions) => {
         if (fs.existsSync(indexPath)) return { source: indexPath };
     }
 
-    return null;
+   return null;
 }
 
 
@@ -171,7 +172,6 @@ exports.resolveDependency = (dep, resolveOptions) => {
 exports.getPackageJson = (entry, silent) => {
     const packagePath = path.join(entry, 'package.json');
     if (!fs.existsSync(packagePath) && !silent) {
-        helper.console.error(`\nCannot find package.json file: ${packagePath}`);
         return null;
     }
 

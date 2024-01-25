@@ -15,7 +15,7 @@ exports.PATTERN = PATTERN;
 const autoprefixer = require('autoprefixer')
 const postcss = require('postcss')
 const postcssNested = require('postcss-nested');
-const { rewriteBaseHref, rewriteSrcHref } = require('./rules');
+const { rewriteBaseHref, rewriteSrcHref, rewriteBkgUrl } = require('./rules');
 
 /**
  * 
@@ -157,7 +157,7 @@ exports.outputApplicationFiles = async function (compilerObject, changes) {
      */
     if (!changes || !changes.isStyles) {
         const changesFilePath = changes ? changes.filePath : null;
-        const isLazyLoaded = changesFilePath && compilerObject.output.modules[changesFilePath].isLazyLoaded;
+        const isLazyLoaded = (compilerObject.output.modules[changesFilePath] || {isLazyLoaded:null}).isLazyLoaded;
         const isProdBuild = (compilerObject.buildOptions && compilerObject.buildOptions.prod);
         if (!isLazyLoaded) {
             const bootStrapFilePath = path.join(compilerObject.options.sourceRoot, compilerObject.entryFile);
@@ -212,10 +212,12 @@ exports.saveApplicationView = async function (compilerObject) {
 /**
  * 
  * @param {*} config 
- * @param {*} folder 
+ * @param {*} append 
+ * @param {*} assetURL 
+ * @returns 
  */
-exports.pushStyle = async (config, append) => {
-    let result = await parseStyle(config);
+exports.pushStyle = async (config, append, assetURL) => {
+    let result = await parseStyle(config, assetURL);
     if (!result || !(result.substring(1, result.length - 2))) return;
     result = helper.stringifyContent(result);
 
@@ -237,7 +239,7 @@ exports.styleChanges = async (compilerObject, changes) => {
     this.pushStyle(existingContent ? existingContent.config : {
         styleUrl: changes.filePath,
         elementFilePath
-    });
+    }, null, compilerObject.buildOptions.assetURL);
 
     await writeCss(compilerObject.options);
 };
@@ -655,7 +657,7 @@ async function resolveModules(compilerObject, fileChanged, bootStrapModulePath) 
 
     for (const filePath of filePaths) {
         req = compilerObject.output.modules[filePath];
-        if (!req.isLazyLoaded) {
+        if (req && !req.isLazyLoaded) {
             const allowBuild = (!fileChanged || (fileChanged && helper.is(fileChanged, filePath)));
             const sourceCode = await generateModuleDeps(filePath, allowBuild);
             files.push(`${getIndex(filePath)} : ${sourceCode}`);
@@ -789,20 +791,19 @@ async function writeLazyLoadModules(compilerObject, isProd) {
     }
 }
 
-async function parseStyle(config) {
+/**
+ * 
+ * @param {*} config 
+ * @param {*} assetURL 
+ * @returns 
+ */
+async function parseStyle(config, assetURL) {
     const style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
     if (!style) return undefined;
     try {
         const result = await postcss([autoprefixer, postcssNested])
-            .process(attachSelector(style), { from: config.styleUrl, to: config.outFile });
+            .process(attachSelector(rewriteBkgUrl(style, assetURL || '')), { from: config.styleUrl, to: config.outFile });
         return result.css.toString();
-        // return nodeSass.renderSync({
-        //     data: ,
-        //     outputStyle: 'compressed',
-        //     outFile: config.outFile,
-        //     sourceMap: false,
-        //     importer: urlLoader
-        // }).css.toString();
     } catch (e) {
         console.log(`styling error: ${e.message || e} for ${config.styleUrl}`);
         return "";
@@ -846,7 +847,7 @@ async function writeCss(options, isLib = false) {
     let styles = [];
     if (options.output.styles) {
         for (const style of options.output.styles) {
-            await exports.pushStyle({ styleUrl: style }, styles);
+            await exports.pushStyle({ styleUrl: style }, styles, options.assetURL);
         }
     }
 

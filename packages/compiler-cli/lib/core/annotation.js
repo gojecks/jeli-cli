@@ -67,7 +67,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
      */
     function validateModule(moduleObj, fnName) {
         Object.keys(moduleObj).forEach(_validate);
-        
+
         /**
          * 
          * @param {*} type 
@@ -132,7 +132,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
 
                 const module = componentsResolver.getExportedModule(reqModule);
                 if (!module) {
-                    compilerError.push(`required module {${helper.colors.yellow(reqModule)}} -> {${helper.colors.yellow(fnName)}} was not found, please import the module. \n help: "${helper.colors.green("import {" +reqModule+"} from 'REQUIRED_PATH';")}"\n`);
+                    compilerError.push(`required module {${helper.colors.yellow(reqModule)}} -> {${helper.colors.yellow(fnName)}} was not found, please import the module. \n help: "${helper.colors.green("import {" + reqModule + "} from 'REQUIRED_PATH';")}"\n`);
                 }
 
                 /**
@@ -237,7 +237,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                 if (service) {
                     if (service.DI) {
                         if (service.DI.includes(tokenName))
-                            compilerError.push(`\nFound circular dependency: ${helper.colors.yellow(tokenName)} in ${helper.colors.yellow(di)} -> ${helper.colors.yellow(className)} ${entryClass ? '-> '+ helper.colors.yellow(entryClass): ''} as ${helper.colors.yellow(tokenName)}`);
+                            compilerError.push(`\nFound circular dependency: ${helper.colors.yellow(tokenName)} in ${helper.colors.yellow(di)} -> ${helper.colors.yellow(className)} ${entryClass ? '-> ' + helper.colors.yellow(entryClass) : ''} as ${helper.colors.yellow(tokenName)}`);
                         else
                             _validateDI(service.DI, tokenName, di, className);
                     }
@@ -295,7 +295,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
     function _registerOrThrowError(type, fn, obj, message) {
         if (!componentsResolver.addEntry(type, fn, obj)) {
             compilerError.push(message);
-        } 
+        }
     }
 
     /**
@@ -314,7 +314,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
             ParseProps(obj);
             ParseAndValidateResolvers(obj);
             if (obj.events && obj.events.length) {
-                obj.events = _processEventRegistry(obj.events);
+                obj.events = _processEventRegistry(obj.events, (!isElement ? (obj.exportAs || obj.selector) : null));
             }
 
             /**
@@ -338,7 +338,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                      Which states a custom element should contain an hyphen e.g <my-element>`);
                 }
 
-                ParseChild(obj,['viewChild','contentChild','contentChildren']);
+                ParseChild(obj, ['viewChild', 'contentChild', 'contentChildren']);
             }
 
         } catch (e) {
@@ -370,14 +370,14 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
         listOfAnnotations.forEach(prop => {
             if (obj[prop] && obj[prop].length) {
                 // QueryList not allowed for @contentChild 
-                
-    
+
+
                 obj[prop] = obj[prop].reduce((accum, item) => {
                     item = helper.stringToObjectNameValueMapping(item, true, true, true);
-                    if(['contentChild'].includes(prop) && item.ql){
+                    if (['contentChild'].includes(prop) && item.ql) {
                         compilerError.push(`QueryList cannot be used with ${prop} -> ${item}`);
                         return accum;
-                    } else if ('contentChildren' == prop && !item.ql){
+                    } else if ('contentChildren' == prop && !item.ql) {
                         compilerError.push(`${prop} must be used with a QueryList  -> ${item}`);
                         return accum;
                     }
@@ -396,7 +396,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
         if (obj.resolve && obj.resolve.length) {
             obj.resolve.forEach(item => {
                 if (helper.typeOf(item, 'string') && !componentsResolver.isExportedToken(item)) return;
-                else if (helper.typeOf(item, 'object')) {}
+                else if (helper.typeOf(item, 'object')) { }
             });
         }
     }
@@ -429,7 +429,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
      * 
      * @param {*} registry 
      */
-    function _processEventRegistry(registry) {
+    function _processEventRegistry(registry, selector) {
         return registry.reduce((accum, reg) => {
             reg = helper.stringToObjectNameValueMapping(reg, false, true);
             if (reg.type && reg.value) {
@@ -445,7 +445,18 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                     }
                 }
             }
+            // parse delegate event
+            if (reg.name.includes('-')){
+                reg.name = reg.name.split('-')[0];
+                reg.target = helper.removeSingleQuote(reg.type).split(',').map(str => helper.addSingleQuote(str, false));
+                reg.type = `'event'`;
+            }
 
+            // attach node selector only when event is attached to directive
+            if (selector){
+                reg.node = helper.addSingleQuote(selector, false);
+            }
+            
             accum[`'${reg.name}'`] = reg;
             delete reg.name;
             return accum;

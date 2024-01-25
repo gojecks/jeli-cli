@@ -15,6 +15,10 @@ class ComponentsResolver  {
         return CoreQuerySelector(this.compilerObject, 'Element', selector, component);
     }
 
+    getElementAnnotation(selector, component){
+        return this.compilerObject.Element[component];
+    }
+
     getDirectives(selector, element, component, module){
         return CoreQuerySelector(this.compilerObject, 'Directive', selector, component, element);
     }
@@ -76,6 +80,10 @@ class ComponentsResolver  {
     addEntry(type, className, instance) {
         if  (!this.compilerObject[type].hasOwnProperty(className)) {
             this.compilerObject[type][className] = instance;
+            // set the rootModule to bootstrap
+            if (type.includes('Module') && !this.compilerObject.isLib && !this.compilerObject.entryModule){
+                this.compilerObject.entryModule = className;
+            }
             return true;
         }
     }
@@ -225,6 +233,30 @@ class ComponentsResolver  {
                     this.compilerObject[annot.type][annot.fn].module = moduleName;
             });
         }
+    }
+
+    getLazyLoadedModules(){
+        return this.compilerObject.output.lazyLoads;
+    }
+
+    resetCompileObject(filePath) {
+        this.compilerObject.files = {};
+        this.compilerObject.globalImports = {};
+        this.compilerObject.Directive = {};
+        this.compilerObject.Element = {};
+        this.compilerObject.jModule = {};
+        this.compilerObject.Service = {};
+        this.compilerObject.queries = {};
+        this.compilerObject.output = {
+            modules: {},
+            global: [],
+            templates: {},
+            styles: {},
+            tokens: {},
+            lazyLoads: []
+        };
+        this.compilerObject.required = {};
+        this.compilerObject.exports = [];
     }
 }   
 

@@ -14,9 +14,21 @@ exports.removeSingleQuote = (str) => {
     return String(str).replace(/[']/g, "");
 }
 
+exports.addSingleQuote = (str, skipQuoteType) => {
+    const skipQuoteValue = (!skipQuoteType ? "'" : "");
+    return `${skipQuoteValue}${str}${skipQuoteValue}`;
+}
+
 exports.removeDoubleQuote = str => {
     return String(str).replace(/["]/g, '');
 }
+
+/**
+ * removes both double and single quotes
+ * @param {*} str 
+ * @returns 
+ */
+exports.removeQuotes = str => (str||'').replace(/["']/g, '');
 
 /**
  * 
@@ -51,7 +63,7 @@ exports.quoteFix = (props, annot, addQuote) => {
 function generateArrayKeyType(key, model) {
     if (isContain("[", key)) {
         model = model || {};
-        return splitAndTrim(key, '[').map(function(current) {
+        return splitAndTrim(key, '[').map(function (current) {
             if (isContain(']', current)) {
                 var _key = current.split(']')[0];
                 return ((model.hasOwnProperty(_key)) ? model[_key] : _key);
@@ -118,7 +130,7 @@ exports.camelCase = (str) => {
 }
 
 exports.isContain = (needle, haystack) => {
-    return needle && haystack.indexOf(needle) > -1;
+    return !!needle && !!haystack && haystack.includes(needle);
 }
 
 /**
@@ -129,7 +141,7 @@ exports.isContain = (needle, haystack) => {
  * @param {*} flags 
  */
 exports.removeSingleOperand = (str, matcher, retemplateOutletHolder, flags) => {
-    return str.replace(new RegExp(matcher, flags), function(s, n, t) {
+    return str.replace(new RegExp(matcher, flags), function (s, n, t) {
         if ((t.charAt(n + 1) === s && t.charAt(n - 1) !== s) || (t.charAt(n + 1) !== s && t.charAt(n - 1) === s)) {
             return s;
         } else {
@@ -154,7 +166,7 @@ exports.$removeWhiteSpace = (str) => {
 exports.hexToRgb = (hex) => {
     // Expand shorthand form (e.g. "03F") to full form (e.g. "0033FF")
     var shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
-    hex = hex.replace(shorthandRegex, function(m, r, g, b) {
+    hex = hex.replace(shorthandRegex, function (m, r, g, b) {
         return r + r + g + g + b + b;
     });
 
@@ -181,8 +193,7 @@ exports.splitAndTrim = (stack, needle) => (stack || '').split(needle).map(key =>
  */
 exports.stringToObjectNameValueMapping = (prop, useName, skipQuoteValue, skipQuoteType) => {
     const inp = this.splitAndTrim(prop, /=/);
-    const nameProp = this.splitAndTrim(inp.shift(), ":");
-    const addQuote = (v, t) => `${(!t?"'" : "")}${v}${(!t?"'" : "")}`;
+    const nameProp = this.splitAndTrim(inp.shift(), ':');
     const item = {
         name: (nameProp.shift()).replace(/[?#]/g, '')
     };
@@ -193,18 +204,22 @@ exports.stringToObjectNameValueMapping = (prop, useName, skipQuoteValue, skipQuo
 
     if (nameProp.length) {
         const spltNameProp = nameProp.pop().split(/\<(.*?)\>$/);
-        item.type = addQuote(spltNameProp[1] || spltNameProp[0], skipQuoteType);
-        if (spltNameProp[0] === 'QueryList'){
+        const type = (spltNameProp[1] || spltNameProp[0]);
+        if (spltNameProp[0] === 'QueryList') {
             // attach queryList flag
-            item.ql=true;
+            item.ql = true;
         }
+        // check for type that includes ,
+        // if found this type of prop is for event delegation
+        // attach raw value
+        item.type = type.includes(',') ? type : this.addSingleQuote(type, skipQuoteType);
     }
 
     if (inp.length || useName) {
         const value = (inp[0] || item.name);
         const symbol = value.charAt(0);
-        item.value = addQuote(this.removeSingleQuote(value.replace(/[:#]/, '')), skipQuoteValue);
-        if (symbol === ':') {
+        item.value = this.addSingleQuote(this.removeSingleQuote(value.replace(/[:#]/, '')), skipQuoteValue);
+        if (symbol == ':') {
             item.isdir = true;
         }
     }
@@ -253,7 +268,7 @@ exports.BuildVersion = (name, version) => {
     return matchPhase;
 };
 
-exports.clearConsole = async function(msg, scroll) {
+exports.clearConsole = async function (msg, scroll) {
     _clearConsole(scroll);
     console.log(initialMsg.join('\n'));
     console.log(msg || '');
@@ -284,8 +299,8 @@ exports.cleanArgs = (cmd) => {
     const args = {}
     cmd.options.forEach(o => {
         const key = exports.camelCase(o.long.replace(/^--/, ''))
-            // if an option is not present and Command has a method with the same name
-            // it should not be copied
+        // if an option is not present and Command has a method with the same name
+        // it should not be copied
         if (typeof cmd[key] !== 'function' && typeof cmd[key] !== 'undefined') {
             args[key] = cmd[key]
         }

@@ -1,6 +1,8 @@
 const helper = require('@jeli/cli/lib/utils');
 const htmlParser = require('./html_parser');
 const loader = require('./loader');
+const aotCompiler = require('./compilers/aot');
+const jitCompiler = require('./compilers/jit');
 const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges, copyAndUpdateAssetsFile } = require('./output');
 const { attachViewSelectorProviders } = require('./view.provider');
 const annotationProps = ['name', 'selector', 'exportAs', 'module'];
@@ -12,8 +14,7 @@ const annotationProps = ['name', 'selector', 'exportAs', 'module'];
  */
 async function CoreGenerator(componentsResolver, entry, changes) {
     const compilerObject = componentsResolver.compilerObject;
-    const isLib = helper.is('library', compilerObject.options.type);
-    const viewSelectorProvider = attachViewSelectorProviders(compilerObject, isLib);
+    const viewSelectorProvider = attachViewSelectorProviders(compilerObject);
 
     /**
      * 
@@ -22,64 +23,66 @@ async function CoreGenerator(componentsResolver, entry, changes) {
      * @returns ctors 
      */
     const getCtors = (ctors, definition) => ctors.reduce((accum, key) => (((definition[key]) ? accum[key] = definition[key] : null), accum), {});
+    
     /**
-     * 
+     * compiles each annotation type found in project workspace
      * @param {*} definition 
+     * @param {*} filePath 
+     * @returns 
      */
-    async function compile(definition, filePath) {
-        let obj = null;
+    async function annotationViewCompiler(definition, filePath) {
+        let ctor = null;
         let ctorAttrs = [];
-        switch (definition.type.toLowerCase()) {
-            case ('service'):
-            case ('pipe'):
-                obj = compilerObject.Service[definition.fn];
-                ctorAttrs = ['name', 'DI'];
-                // attach ctor attributes
-                attachCtorToDefinition();
-                if (obj.static) {
-                    definition.annotations.push(`${definition.fn}.ctors.instance = ${definition.fn};`);
-                }
-                break;
-            case ('directive'):
-            case ('element'):
-                obj = compilerObject[definition.type][definition.fn];
-                if (!obj.module) {
-                    helper.console.warn(`${helper.colors.yellow(definition.fn)} is not registered to any Module`);
-                    return;
-                }
-                // attach ctor attributes
-                ctorAttrs = ['selector', 'events', 'exposeView', 'props', 'DI', 'resolve', 'exportAs']
-                attachCtorToDefinition();
-                if (helper.is(definition.type, 'Element')) {
-                    await generateElementAst();
-                }
-                break;
-            case ('jmodule'):
-                /**
-                 * compile @config and @initializers
-                 */
-                if (compilerObject.jModule[definition.fn].rootElement) {
-                    definition.annotations.push(`${definition.fn}.rootElement = ${compilerObject.jModule[definition.fn].rootElement};`)
-                }
+        const annotationName = definition.type.toLowerCase();
 
-                if (compilerObject.jModule[definition.fn].requiredModules && compilerObject.jModule[definition.fn].requiredModules.length) {
-                    const requiredModule = compilerObject.jModule[definition.fn].requiredModules; // .map(dep => (!componentsResolver.hasModule(dep) ? `%${dep}%` : dep));
-                    definition.annotations.push(`${definition.fn}.fac = () =>/** bootstrap module**/${helper.objectStringToAsIs(requiredModule)}.forEach(m => { if(!m.k && typeof m == 'function') return (m.fac && m.fac(), m(), m.k = 1); });\n;`);
-                }
-                break;
+        if (['service', 'pipe'].includes(annotationName)) {
+            ctor = compilerObject.Service[definition.fn];
+            ctorAttrs = ['name', 'DI'];
+            // attach ctor attributes
+            attachCtorToDefinition();
+            if (ctor.static) {
+                definition.annotations.push(`${definition.fn}.ctors.instance = ${definition.fn};`);
+            }
+        } else if (['directive', 'element'].includes(annotationName)) {
+            ctor = compilerObject[definition.type][definition.fn];
+            if (!ctor.module) {
+                helper.console.warn(`${helper.colors.yellow(definition.fn)} is not registered to any Module`);
+                return;
+            }
+            // attach ctor attributes
+            ctorAttrs = ['selector', 'events', 'exposeView', 'props', 'DI', 'resolve', 'exportAs'];
+            attachCtorToDefinition();
+            if (helper.is(definition.type, 'Element')) {
+                await generateElementAst();
+            }
+        } else if (annotationName == 'jmodule') {
+            /**
+             * compile @config and @initializers
+             */
+            if (compilerObject.jModule[definition.fn].rootElement) {
+                definition.annotations.push(`${definition.fn}.rootElement = ${compilerObject.jModule[definition.fn].rootElement};`)
+            }
+
+            if (compilerObject.jModule[definition.fn].requiredModules && compilerObject.jModule[definition.fn].requiredModules.length) {
+                const requiredModule = compilerObject.jModule[definition.fn].requiredModules;
+                definition.annotations.push(`${definition.fn}.fac = () =>/** bootstrap module**/${helper.objectStringToAsIs(requiredModule)}.forEach(m => { if(!m.k && typeof m == 'function') return (m.fac && m.fac(), m(), m.k = 1); });\n;`);
+            }
         }
 
 
         function attachCtorToDefinition() {
-            const ctors = getCtors(ctorAttrs, obj);
+            const ctors = getCtors(ctorAttrs, ctor);
             definition.annotations.push(`${definition.fn}.ctors = ${helper.objectStringToAsIs(ctors, annotationProps)};`);
-            helper.quoteFix(annotationProps, obj);
+            helper.quoteFix(annotationProps, ctor);
         }
 
+        /**
+         * this method compiles and parses html/styles defined in a Element definition 
+         */
         async function generateElementAst() {
-            let template = obj.template;
-            let styleUrl = obj.styleUrl;
-            const style = obj.style;
+            let template = ctor.template;
+            let styleUrl = ctor.styleUrl;
+            const style = ctor.style;
             if (styleUrl) {
                 styleUrl = loader.joinFilePath(filePath, '..', styleUrl);
                 compilerObject.output.styles[styleUrl] = filePath;
@@ -89,21 +92,32 @@ async function CoreGenerator(componentsResolver, entry, changes) {
             if (style || styleUrl) {
                 await pushStyle({
                     name: definition.fn,
-                    selector: obj.selector,
+                    selector: ctor.selector,
                     style,
                     styleUrl,
                     elementFilePath: filePath
-                });
+                }, null, compilerObject.buildOptions.assetURL);
             }
 
-            if (obj.templateUrl) {
-                const templatePath = loader.joinFilePath(filePath, '..', obj.templateUrl);
-                template = loader.templateContentLoader(templatePath);
-                compilerObject.output.templates[templatePath] = filePath;
+            if (ctor.templateUrl) {
+                // this is used when having multiple templates defined for a one element
+                // usefull when template file is growing large
+                let templatePath = null;
+                if (Array.isArray(ctor.templateUrl)) {
+                    template = ctor.templateUrl.map(tPath => {
+                        tPath = loader.joinFilePath(filePath, '..', tPath);
+                        compilerObject.output.templates[tPath] = filePath;
+                        return loader.templateContentLoader(tPath)
+                    }).join('\n');
+                } else {
+                    templatePath = loader.joinFilePath(filePath, '..', ctor.templateUrl)
+                    compilerObject.output.templates[templatePath] = filePath;
+                    template = loader.templateContentLoader(templatePath)
+                }
             }
 
             if (template) {
-                const parsedHtml = htmlParser(template, obj, componentsResolver, definition.fn, !!changes, compilerObject.buildOptions.assetURL);
+                const parsedHtml = htmlParser(template, ctor, componentsResolver, definition.fn, !!changes, compilerObject.buildOptions.assetURL);
                 if (parsedHtml.errorLogs.length) {
                     helper.console.header(`\nTemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
                     parsedHtml.errorLogs.forEach(helper.console.error);
@@ -116,8 +130,8 @@ async function CoreGenerator(componentsResolver, entry, changes) {
                 }
             }
 
-            // remove template and styles mapping
-            ['template', 'templateUrl', 'styleUrl', 'style', 'viewChild', 'viewChildren'].forEach(key => (delete obj[key]));
+            // remove unsed mapping from the ctors
+            ['template', 'templateUrl', 'styleUrl', 'style', 'viewChild', 'viewChildren'].forEach(key => (delete ctor[key]));
         }
     }
 
@@ -131,61 +145,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
         definition.annotations.push(`${definition.fn}.view = /** jeli template **/ ${generateView(filePath, parsedHtml)}/** template loader **/`);
     }
 
-    /**
-     * 
-     * @param {*} t 
-     * @param {*} prop 
-     * @returns 
-     */
-    function tmplToScript(t, viewRef, childVar) {
-        var s = ``;
-        if (t) {
-            var templates = null;
-            var children = null;
-            if (t.templates) {
-                templates = constructTemplate(t.templates);
-            }
-
-            if (t.children) {
-                children = `function(parentRef){${constructContents(t.children, 'parentRef')}.forEach(function(child,i){if(child){parentRef.children.add(child, i); parentRef.nativeElement.appendChild(child.nativeElement || child.nativeNode); } });}`;
-            }
-
-            if (t.type === 3) {
-                s += `core["ViewParser"].builder.text(${JSON.stringify(t.ast || null)}, ${viewRef})`;
-            } else {
-                const definitions = ['name', 'text', 'index', 'vc', 'isc', 'attr', 'props', 'providers'].reduce((accum, key) => { if (t.hasOwnProperty(key)) { accum[key] = t[key]; } return accum; }, {});
-                s += `core["ViewParser"].builder.${t.type}(${JSON.stringify(definitions)}, ${viewRef}, ${children}, ${templates})`;
-            }
-        }
-
-        return `${s}`;
-    }
-
-    /**
-     * 
-     * @param {*} templates 
-     * @returns 
-     */
-    function constructTemplate(templates) {
-        var ret = [];
-        for (const tprop in templates) {
-            const tid = `${tprop}_tmpl`;
-            ret.push(`${tprop}: function(){ return ${tmplToScript(templates[tprop], tid)}}`);
-        }
-        return `{${ret.join(',')}}`;
-    }
-
-    /**
-     * 
-     * @param {*} templates 
-     */
-    function constructContents(templates, viewRef) {
-        const contents = templates.map((child, idx) => {
-            return tmplToScript(child, viewRef, `${viewRef}_child_${idx}`);
-        });
-
-        return `[${contents.join(',')}]`;
-    }
+   
 
 
     /**
@@ -198,31 +158,15 @@ async function CoreGenerator(componentsResolver, entry, changes) {
         const templateKeys = Object.keys(parsedHtml.templatesMapHolder);
         let output = '';
         if (compilerObject.buildOptions.AOT) {
-            output = `var $tmpl=${constructTemplate(parsedHtml.templatesMapHolder)}; ${constructContents(parsedHtml.parsedContent, 'viewRef')};`;
+            output = aotCompiler(parsedHtml);
         } else {
-            output = `function(){ 'use strict'; var compiler = new core["ViewParser"].JSONCompiler( (id) => (${replaceTemplateMappers(parsedHtml.templatesMapHolder, true)}[id]) );  return function(viewRef){ return compiler.compile(${replaceTemplateMappers(parsedHtml.parsedContent)}, viewRef);}}()`;
+            output = jitCompiler(parsedHtml);
         }
 
         viewSelectorProvider(parsedHtml.providers, imports).forEach(replaceProviders);
 
         function replaceProviders(viewProvider) {
             output = output.replace(new RegExp(`"%${viewProvider.providerName}%"`, 'g'), !viewProvider.outputName ? `${viewProvider.providerName}` : `${viewProvider.outputName}.${viewProvider.providerName}`);
-        }
-
-        /**
-         * 
-         * @param {*} template 
-         * @param {*} attachWrapper 
-         * @returns 
-         */
-        function replaceTemplateMappers(template, attachWrapper) {
-            return JSON.stringify(template).replace(new RegExp(`"<%(.*?)%>"`, 'g'), (_, expr) => {
-                if (expr.startsWith('compiler')) return expr;
-                if (expr === 'GT') return `compiler._GT`;
-                const templateExpr = expr.split('|');
-                const tmpscript = `compiler._GT('${templateExpr[0]}', ${templateExpr[1] ? JSON.stringify(parsedHtml.templateOptionsMapper[templateExpr[1]]) : null})`;
-                return `${attachWrapper ? 'function(){ return ' + tmpscript + ';}' : tmpscript}`;
-            });
         }
 
         return output;
@@ -262,7 +206,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
             const implementation = compilerObject.output.modules[filePath];
             if (implementation && implementation.annotations) {
                 for (const annotation of implementation.annotations) {
-                    await compile(annotation, filePath);
+                    await annotationViewCompiler(annotation, filePath);
                     if (!annotation.pending) {
                         implementation.source.push(generateScript(annotation));
                     } else {
@@ -279,7 +223,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
      * save files
      */
     helper.writeline('');
-    if (isLib) {
+    if (compilerObject.isLib) {
         await outputLibraryFiles(compilerObject, entry);
     } else {
         await outputApplicationFiles(compilerObject, changes);

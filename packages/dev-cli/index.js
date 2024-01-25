@@ -74,7 +74,7 @@ exports.build = async function build(entry, options, startDevServer) {
      * start devServer and watcher
      */
     if (options.serverOptions) {
-        startDevServer(projectSchema.sourceRoot);
+        startDevServer(projectSchema.sourceRoot, Object.values(jeliSchemaJSON.resolve.alias).map(t => path.resolve(t)));
     }
 
     /**
@@ -148,17 +148,26 @@ exports.serve = async function(entry, options) {
         return server;
     }
 
-    async function serveAndWatch(sourceRoot){
+    /**
+     * 
+     * @param {*} sourceRoot 
+     * @param {*} resolveAliasPaths 
+     */
+    async function serveAndWatch(sourceRoot, resolveAliasPaths){
         const server = startServer();
         if (options.buildOptions.watch) {
-            const watchFolders = [sourceRoot];
+            const watchFolders = {
+                root:[sourceRoot],
+                resolveAliasPaths
+            };
+            
             let pending = false;
-            await watchFn(watchFolders, async(path, event) => {
+            await watchFn(watchFolders, async(path, event, isExternalModule) => {
                 if (!pending) {
                     server.pushEvent('compiling');
                     pending = true;
                     try {
-                        await jeliCompiler.buildByFileChanges(path, event);
+                        await jeliCompiler.buildByFileChanges(path, event, isExternalModule);
                         server.pushEvent('reload');
                         jeliUtils.console.success(jeliUtils.colors.green('compilation successful.'));
                     } catch (e) {

@@ -3,6 +3,7 @@ const helper = require('@jeli/cli/lib/utils');
 const escodegen = require('escodegen');
 const comment = require('./comment');
 const expressionList = 'Directive,Element,Service,Provider,Pipe,jModule'.split(',');
+const bootStrapFnName = 'bootStrapApplication';
 const ASTDeclarations = {
     IMPORT: "ImportDeclaration",
     EXPORT_NAMED: "ExportNamedDeclaration",
@@ -27,7 +28,8 @@ const ASTExpression = {
     NEW: "NewExpression",
     THIS: "ThisExpression",
     LOGICAL: "LogicalExpression",
-    LITERAL: "LITERAL"
+    LITERAL: "LITERAL",
+    IF: "IfStatement"
 };
 
 const ASTIdentifier = 'Identifier';
@@ -43,9 +45,9 @@ function deduceSourceType(source) {
  * 
  * @param {*} source 
  * @param {*} currentProcess 
- * @param {*} stripBanner 
+ * @param {*} isEntry
  */
-exports.generateAstSource = (source, currentProcess, stripBanner) => {
+exports.generateAstSource = (source, currentProcess, isEntry) => {
     let ast = null;
     try {
         ast = esprima.parse(source, {
@@ -129,18 +131,21 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
             case (ASTExpression.STATEMENT):
                 if (isAnnotationStatement(expression)) {
                     // found Annotations
-                    const impl = getFunctionImpl(ast.body, i, currentProcess.exports);
                     const properties = expression.expression.arguments[0];
                     const type = expression.expression.callee.name;
-                    const isService = ['jmodule'].includes(type.toLowerCase());
+                    currentProcess.isModule = type.includes('Module');
+                    const impl = getFunctionImpl(ast.body, i, currentProcess.exports);
                     sourceOutlet.annotations.push({
                         impl,
                         type,
-                        definitions: properties ? generateProperties(properties.properties, true, false, isService) : {}
+                        definitions: properties ? generateProperties(properties.properties, true, false, currentProcess.isModule) : {}
                     });
                     i = i + impl.length;
                 } else {
                     sourceOutlet.scripts.push(expression);
+                    if (isEntry && expression.expression.callee.object) {
+                       checkForBootStrapModule(expression.expression.callee.object);
+                    }
                 }
                 break;
             default:
@@ -148,7 +153,7 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
                 if (helper.is(ASTDeclarations.VARIABLE, expression.type)) {
                     expression.declarations.map(decl => pushDeclarations(decl.id.name, 'vars'));
                 } else if (helper.is(ASTDeclarations.FUNCTION, expression.type)) {
-                    pushDeclarations(expression.id.name, 'fns')
+                    pushDeclarations(expression.id.name, 'fns');
                 }
                 break;
         }
@@ -167,6 +172,21 @@ exports.generateAstSource = (source, currentProcess, stripBanner) => {
         }
 
         currentProcess.declarations[type].push(name);
+    }
+
+    function checkForBootStrapModule(expression){
+        const callerName = expression.callee.name;
+        if (callerName == bootStrapFnName) {
+            // get the first argument which should be the module name
+            const arg = expression.arguments[0];
+            if (!arg || arg.type !== ASTIdentifier) {
+                throw new Error(`FN<${callerName}> requires a module in argument #0`);
+            }
+
+            // write the bootStrapModule
+            console.log(`bootStrap moduleName ${arg.name}`);
+            currentProcess.bootStrapModule = arg.name;
+        }
     }
 }
 
@@ -207,10 +227,8 @@ function getFunctionImpl(ast, idx, exports) {
     } else if (!helper.is(entryAst.type, ASTDeclarations.FUNCTION)) {
         throw new Error(`Annotation should be followed by a Function Declaration`);
     }
-
-    const fn = (entryAst.declaration || entryAst).id.name;
     const impl = [entryAst.declaration || entryAst];
-
+    const fn = impl[0].id.name;
     for (const expression of ast.slice(idx + 2)) {
         if (isAnnotationStatement(expression)) return impl;
         if (_matches(expression)) impl.push(expression);

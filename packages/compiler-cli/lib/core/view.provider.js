@@ -2,7 +2,7 @@ const helper = require('@jeli/cli/lib/utils');
 const cached = {};
 
 
-exports.attachViewSelectorProviders = (compilerObject, isLib) => {
+exports.attachViewSelectorProviders = (compilerObject) => {
     const filePaths = Object.keys(compilerObject.files);
     const globalImports = Object.keys(compilerObject.globalImports);
 
@@ -13,7 +13,10 @@ exports.attachViewSelectorProviders = (compilerObject, isLib) => {
     };
 
     function getFilePathByModuleName(moduleName){
-        return cached[moduleName] || filePaths.find(path => compilerObject.files[path].exports.some(exp => exp.exported === moduleName));
+        return cached[moduleName] || filePaths.find(path => {
+            const fileObj = compilerObject.files[path];
+            return !!fileObj && fileObj.exports.some(exp => exp.exported === moduleName)
+        });
     }
 
     /**
@@ -24,7 +27,7 @@ exports.attachViewSelectorProviders = (compilerObject, isLib) => {
      * @returns 
      */
     function attachToImportMapping(moduleName, providerName, imports) {
-        let outputName = (isLib ? `exports` : moduleName);
+        let outputName = (compilerObject.isLib ? `exports` : moduleName);
         if (compilerObject.jModule.hasOwnProperty(moduleName)) {
             const filePath = getFilePathByModuleName(providerName);
             if (filePath) {

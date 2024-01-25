@@ -126,6 +126,8 @@ async function CompilerObject(options, buildOptions, resolvers) {
         this.required = {};
         this.exports = [];
         this.entryFile = fileEntry;
+        this.isLib = ('library' == options.type);
+        this.entryModule = null;
     }
 
     /**

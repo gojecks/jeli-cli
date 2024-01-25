@@ -37,15 +37,17 @@ exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
  * 
  * @param {*} filePath 
  * @param {*} eventType 
+ * @param {*} isExternalModule 
+ * @returns 
  */
-exports.buildByFileChanges = async function(filePath, eventType) {
+exports.buildByFileChanges = async function(filePath, eventType, isExternalModule) {
     const { saveApplicationView } = require('./core/output');
     const compilerObject = session.get();
     const indexObject = Object.values(compilerObject)[0];
     const componentsResolver = new ComponentsResolver(indexObject);
     const indexPath = (`${indexObject.options.sourceRoot}/${indexObject.options.output.view}`);
     const isAssetsChanges = getAssetItem(filePath, indexObject.options.output.copy);
-    if (helper.is(eventType, 'change') && !isAssetsChanges) {
+    if (isExternalModule || (helper.is(eventType, 'change') && !isAssetsChanges)) {
         helper.console.clear(`\nre-compiling ${helper.colors.green(filePath)}...\n`);
         // index.html file changes
         // dont require complete compilation
@@ -62,6 +64,14 @@ exports.buildByFileChanges = async function(filePath, eventType) {
      * compile file changes
      */
     async function compileFileChanges() {
+        // recompile a fresh instance
+        if (isExternalModule) {
+            componentsResolver.resetCompileObject(filePath);
+            await compiler(componentsResolver);
+            await generator.generateApp(componentsResolver);
+            return true;
+        }
+
         const ext = loader.getExt(filePath);
         const fileChanges = {
             filePath,

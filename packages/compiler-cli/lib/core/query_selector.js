@@ -48,34 +48,36 @@ function _query(queryElements, element) {
 
 /**
  * 
- * @param {*} registeredElement 
- * @param {*} queries 
- * @param {*} selector 
- * @param {*} element 
- * @param {*} moduleName 
+ * @param {*} metaData 
+ * @param {*} config 
+ * @returns 
  */
-function _CoreSelector(registeredElement, queries, selector, element, moduleName) {
+function _CoreSelector(metaData, config, isLocalCheck) {
+    const registeredElement = metaData[config.type];
     const _runQuery = name => {
         const dir = registeredElement[name];
-        /**
-         * check first if module matches
-         */
-        if (dir.module !== moduleName) return false;
+        // check first if module matches
+        // or isLocalCheck and buildType is application
+        // then allow passTru
+        if (dir.module != config.moduleName && (!isLocalCheck || (isLocalCheck && metaData.isLib))) {
+            return false;
+        }
+
         // check for array listed selectors
         if (Array.isArray(dir.selector)) {
-            const selectorName = dir.selector.find(query => queries.hasOwnProperty(query));
-            if (selectorName && element) {
-                return _query(queries[selectorName], element);
+            const selectorName = dir.selector.find(query => metaData.queries.hasOwnProperty(query));
+            if (selectorName && config.element) {
+                return _query(metaData.queries[selectorName], config.element);
             }
 
-            return dir.selector.includes(selector)
+            return dir.selector.includes(config.selector)
         }
 
-        if (queries.hasOwnProperty(dir.selector) && element) {
-            return _query(queries[dir.selector], element);
+        if (metaData.queries.hasOwnProperty(dir.selector) && config.element) {
+            return _query(metaData.queries[dir.selector], config.element);
         }
 
-        return (dir.selector === selector);
+        return (dir.selector === config.selector);
     };
 
     return Object.keys(registeredElement).filter(_runQuery).map(name => {
@@ -85,7 +87,15 @@ function _CoreSelector(registeredElement, queries, selector, element, moduleName
             obj: dir.link || dir
         };
     });
-};
+}
+
+exports.getBySelector = (compilerObject, selector, type) => {
+    for (var element in compilerObject[type]) {
+        if (compilerObject[type][element].selector.includes(selector)) {
+            return compilerObject[type][element];
+        }
+    }
+}
 
 /**
  * 
@@ -93,34 +103,30 @@ function _CoreSelector(registeredElement, queries, selector, element, moduleName
  * @param {*} type 
  * @param {*} selector 
  * @param {*} componentName 
- * @param {*} element 
+ * @param {?} element 
  */
 exports.CoreQuerySelector = (compilerObject, type, selector, componentName, element) => {
     const startModule = compilerObject['Element'][componentName].module;
+    const isElementScan = type === 'Element';
     const found = [];
-    search(compilerObject, startModule);
-    if (!element && found.length) {
-        return found;
-    }
-
-    /**
-     * 
-     * @param {*} reqModule 
-     */
-    function search(meta, moduleName) {
-        if (!meta || !meta.jModule[moduleName]) return;
-        found.push.apply(found, _CoreSelector(meta[type], meta.queries, selector, element, moduleName));
-    }
-
-    /**
-     * find in requiredModules
-     */
-    const parentModule = compilerObject.jModule[startModule];
     const isResolvedModule = [];
-    if (parentModule.requiredModules) {
-        findInRequiredModules(parentModule.requiredModules);
+
+    /**
+     * search for element configuration inside entry module definition 
+     * @param {*} meta 
+     * @param {*} moduleName 
+     * @returns 
+     */
+    function search(meta, moduleName, isLocalCheck) {
+        if (!meta || !meta.jModule[moduleName]) return;
+        found.push.apply(found, _CoreSelector(meta, { type, selector, element, moduleName }, isLocalCheck));
     }
 
+    /**
+     * Find element in requiredModules
+     * @param {*} requiredModules 
+     * @returns 
+     */
     function findInRequiredModules(requiredModules) {
         for (const moduleName of requiredModules) {
             if (type === 'Element' && found.length) return;
@@ -143,6 +149,14 @@ exports.CoreQuerySelector = (compilerObject, type, selector, componentName, elem
 
             isResolvedModule.push(moduleName);
         }
+    }
+
+    search(compilerObject, startModule, true);
+    if (isElementScan && found.length) return found;
+    // find in requiredModules
+    const parentModule = compilerObject.jModule[startModule];
+    if (parentModule.requiredModules) {
+        findInRequiredModules(parentModule.requiredModules);
     }
 
     isResolvedModule.length = 0;
@@ -203,14 +217,14 @@ exports.parseQuery = querySelector => {
  * @param {*} astNode 
  * @returns matchViewQuery
  */
-exports.matchViewQueryFromAstNode = function(queryList, astNode){
-        return queryList.find(query => {
-            const castedValue = query.value.replace(/\'/g, '');
-            return (
-                helper.is(astNode.refId, castedValue) ||
-                helper.is(astNode.name, castedValue) ||
-                (query.isdir && astNode.directives && astNode.directives.hasOwnProperty(castedValue)) ||
-                (astNode.attr && helper.is(astNode.attr['selector'], castedValue))
-            );
-        })
-     }
+exports.matchViewQueryFromAstNode = function (queryList, astNode) {
+    return queryList.find(query => {
+        const castedValue = query.value.replace(/\'/g, '');
+        return (
+            helper.is(astNode.refId, castedValue) ||
+            helper.is(astNode.name, castedValue) ||
+            (query.isdir && astNode.directives && astNode.directives.hasOwnProperty(castedValue)) ||
+            (astNode.attr && helper.is(astNode.attr['selector'], castedValue))
+        );
+    });
+}
