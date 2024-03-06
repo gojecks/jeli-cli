@@ -71,8 +71,7 @@ async function processFile(componentsResolver, filePath, parentPath, lazyLoadMod
     let source;
     // Read file source.
     try {
-        source = loader.readFile(filePath, false, false, componentsResolver.compilerObject.buildOptions.replace);
-        source = generateAstSource(extractRequired(componentsResolver, source, filePath), fileAst, isEntry);
+        source = exports.loadSource(filePath, componentsResolver,fileAst, isEntry);
         if (!isExternalModule) {
             componentsResolver.pushToExports(fileAst.exports);
         }
@@ -223,6 +222,10 @@ function hasInvalidImport(importItem, exportedItem) {
 }
 
 
+exports.loadSource = (filePath, componentsResolver, fileAst, isEntry) => {
+    let source = loader.readFile(filePath, false, false, componentsResolver.compilerObject.buildOptions.replace);
+    return generateAstSource(extractRequired(componentsResolver, source, filePath), fileAst, isEntry);
+};
 
 exports.compiler = async function (componentsResolver) {
     const filePath = path.join(componentsResolver.compilerObject.options.sourceRoot, componentsResolver.compilerObject.entryFile);

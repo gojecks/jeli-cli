@@ -10,10 +10,20 @@ module.exports = async(foldersConfig, callback) => {
         ignoreInitial: true
     });
 
+    let timer = null; // property to hold our timer
+    const setTimer = (event, path) => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout (() => {
+            const filePath = foldersConfig.resolveAliasPaths.find(k => path.includes(k));
+            if (filePath) callback(event, filePath, true);            
+            timer = null;
+        }, 3000);
+    };
+
     // watcher.add()
     watcher.on('all', (event, path) => {
         if (foldersConfig.root.includes(path.split('/')[0])) {
-            callback(path, event);
+            return callback(path, event);
         }
 
         if (event == 'unlinkDir' && foldersConfig.resolveAliasPaths.includes(path)) {
@@ -29,7 +39,11 @@ module.exports = async(foldersConfig, callback) => {
             console.log(`Alias Path<${path}> changed`);
             // we wait for 3 secs before triggering callback
             watcher.options.ignoreInitial = true;
-            setTimeout (() => callback(path, event, true), 3000)
+            return setTimer(event, path);
+        }
+
+        if (['add', 'change'].includes(event) && foldersConfig.resolveAliasPaths.some(k => path.includes(k))) {
+            setTimer(event, path);
         }
     });
 };

@@ -13,7 +13,6 @@ exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
         loader.spinner.stop();
         return helper.console.error(`Invalid or no configuration specified`);
     } 
-    
     try {
         const compilerObject = await CompilerObject(projectSchema, buildOptions, resolveSchema);
         for (const name in compilerObject) {
@@ -22,7 +21,7 @@ exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
             await generator.generateApp(componentsResolver, name);
         }
 
-        if (buildOptions.watch) {
+        if (buildOptions && buildOptions.watch) {
             session.save(compilerObject);
         }
     } catch (e) {

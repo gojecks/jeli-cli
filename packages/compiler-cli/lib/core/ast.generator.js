@@ -218,15 +218,15 @@ function validateSourcePath(path, type) {
  */
 function getFunctionImpl(ast, idx, exports) {
     const entryAst = ast[idx + 1];
-    if (helper.isContain(entryAst.type, [ASTDeclarations.EXPORT_NAMED, ASTDeclarations.EXPORT_DEFAULT]) &&
-        helper.is(entryAst.declaration.type, ASTDeclarations.FUNCTION)) {
+    const isCallable = [ASTDeclarations.FUNCTION, ASTDeclarations.CLASS].includes(entryAst?.declaration.type);
+    if ([ASTDeclarations.EXPORT_NAMED, ASTDeclarations.EXPORT_DEFAULT].includes(entryAst.type) && isCallable) {
         exports.push({
             local: entryAst.declaration.id.name,
             exported: entryAst.declaration.id.name
         });
-    } else if (!helper.is(entryAst.type, ASTDeclarations.FUNCTION)) {
+    } else if (!isCallable) 
         throw new Error(`Annotation should be followed by a Function Declaration`);
-    }
+        
     const impl = [entryAst.declaration || entryAst];
     const fn = impl[0].id.name;
     for (const expression of ast.slice(idx + 2)) {

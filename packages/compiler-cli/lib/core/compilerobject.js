@@ -1,6 +1,7 @@
 const fs = require('fs-extra');
 const glob = require('glob');
 const { generateAstSource } = require('./ast.generator');
+const OutPutObject = require('./compiler.output');
 const path = require('path');
 const supportedFiles = ['.js', '.jeli'];
 /**
@@ -97,39 +98,6 @@ async function CompilerObject(options, buildOptions, resolvers) {
     }
 
     let outputFiles = {};
-
-    function outPutObject(fileEntry) {
-        Object.defineProperties(this, {
-            options: {
-                get: () => options
-            },
-            buildOptions: {
-                get: () => buildOptions || {}
-            }
-        });
-
-        this.files = {};
-        this.globalImports = {};
-        this.Directive = {};
-        this.Element = {};
-        this.jModule = {};
-        this.Service = {};
-        this.queries = {};
-        this.output = {
-            modules: {},
-            global: [],
-            templates: {},
-            styles: {},
-            tokens: {},
-            lazyLoads: []
-        };
-        this.required = {};
-        this.exports = [];
-        this.entryFile = fileEntry;
-        this.isLib = ('library' == options.type);
-        this.entryModule = null;
-    }
-
     /**
      * generate a compilerObject for each file to be output
      */
@@ -138,13 +106,13 @@ async function CompilerObject(options, buildOptions, resolvers) {
             const entryFile = options.output.files[fileName];
             if (entryFile.indexOf('*') > -1) {
                 exports.expandFilePath(entryFile, options.sourceRoot)
-                    .forEach(filePath => outputFiles[generateOutPutFileName(fileName, filePath, entryFile)] = new outPutObject(filePath));
+                    .forEach(filePath => outputFiles[generateOutPutFileName(fileName, filePath, entryFile)] = new OutPutObject(filePath, options, buildOptions));
             } else {
-                outputFiles[fileName] = new outPutObject(entryFile);
+                outputFiles[fileName] = new OutPutObject(entryFile, options, buildOptions);
             }
         }
     } else if (options.output.entryFile) {
-        outputFiles[options.output.entryFile] = new outPutObject(options.output.entryFile);
+        outputFiles[options.output.entryFile] = new OutPutObject(options.output.entryFile, options, buildOptions);
     }
 
 

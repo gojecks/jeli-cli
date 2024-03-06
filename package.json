@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "node scripts/test.runner.js",
+    "test": "mocha --recursive '**/test/*.spec.js' --reporter spec",
     "release": "node scripts/release.js"
   },
   "keywords": [

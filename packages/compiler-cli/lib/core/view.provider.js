@@ -60,7 +60,7 @@ exports.attachViewSelectorProviders = (compilerObject) => {
                     specifiers: []
                 });
             }
-            outputName = compilerObject.globalImports[name].output.arg;
+            outputName = compilerObject.globalImports[name]?.output?.arg;
         }
 
         return {

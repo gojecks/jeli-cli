@@ -798,14 +798,17 @@ async function writeLazyLoadModules(compilerObject, isProd) {
  * @returns 
  */
 async function parseStyle(config, assetURL) {
-    const style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
+    let style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
+    // array styles
+    if (Array.isArray(style)) style = style.join('\n');
+
     if (!style) return undefined;
     try {
         const result = await postcss([autoprefixer, postcssNested])
             .process(attachSelector(rewriteBkgUrl(style, assetURL || '')), { from: config.styleUrl, to: config.outFile });
         return result.css.toString();
     } catch (e) {
-        console.log(`styling error: ${e.message || e} for ${config.styleUrl}`);
+        console.log(`styling error: ${e.message || e} for ${config.styleUrl || 'componentStyle'} in ${helper.colors.yellow(config.elementFilePath)}`);
         return "";
     }
 

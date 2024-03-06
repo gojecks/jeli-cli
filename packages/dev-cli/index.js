@@ -74,7 +74,8 @@ exports.build = async function build(entry, options, startDevServer) {
      * start devServer and watcher
      */
     if (options.serverOptions) {
-        startDevServer(projectSchema.sourceRoot, Object.values(jeliSchemaJSON.resolve.alias).map(t => path.resolve(t)));
+        startDevServer(projectSchema.sourceRoot, Object.values(jeliSchemaJSON.resolve.alias)
+        .map(t => path.resolve(t)));
     }
 
     /**
