@@ -13,6 +13,7 @@ exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
         loader.spinner.stop();
         return helper.console.error(`Invalid or no configuration specified`);
     } 
+    let passed = true;
     try {
         const compilerObject = await CompilerObject(projectSchema, buildOptions, resolveSchema);
         for (const name in compilerObject) {
@@ -27,9 +28,10 @@ exports.builder = async function(projectSchema, buildOptions, resolveSchema) {
     } catch (e) {
         console.log(e);
         helper.abort(`\n${e.message}`);
+        passed = false
     }
 
-    return true;
+    return passed;
 };
 
 /**

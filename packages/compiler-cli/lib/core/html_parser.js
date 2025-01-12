@@ -7,6 +7,7 @@ const interpolation = require('./interpolation');
 const helper = require('@jeli/cli/lib/utils');
 const { matchViewQueryFromAstNode } = require('./query_selector');
 const { rewriteUrl, rewriteBkgUrl } = require('./rules');
+const { ckeyWords } = require('../utils/keywords');
 const restrictedCombination = ['j-template', 'j-place', 'case', 'default'];
 const isFragmentElement = tagName => ["j-fragment", "j-template", "j-place", 'template'].includes(tagName);
 const standardAttributes = 'id|class|style|title|dir|lang|aria';
@@ -25,10 +26,28 @@ const resolvedFilters = {};
 const resolvedElements = {};
 const pendingElements = {};
 
-EventHandlerTypes = {
+const EventHandlerTypes = {
     change: ['checkbox', 'radio', 'select-one', 'select-multiple', 'select'],
     input: ['text', 'password', 'textarea', 'email', 'url', 'week', 'time', 'search', 'tel', 'range', 'number', 'month', 'datetime-local', 'date', 'color']
 };
+
+const inBuildMethods = {
+    range: function(start, end, step, labels){
+        const res = [];
+        labels = (labels || '').split('-');
+        for(let i = start; i<= end; i++){
+            if (step){
+                i = ((i + step) - 1);
+                if (i > end) i = end;
+            }
+            res.push(labels && labels[i] || i);
+        }
+
+        return res;
+    }
+};
+
+
 
 /**
  * 
@@ -46,13 +65,18 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         delete resolvedElements[ctor.selector];
     }
 
-    const templatesMapHolder = {};
-    const templateOptionsMapper = [];
-    let pendingDependencies = false;
-    const providers = {
-        ViewParser: "@jeli/core"
+    const output = {
+        errorLogs: [],
+        parsedContent: null,
+        templateOptionsMapper: [],
+        templatesMapHolder: {},
+        providers: {
+            ViewParser: "@jeli/core"
+        },
+        pendingDependencies: false,
+        vt: {} // viewTemplates
     };
-    const errorLogs = [];
+
     /**
      * parse ast node received
      * @param {*} item 
@@ -177,12 +201,12 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         const matched = matchViewQueryFromAstNode(query.child, isStructural ? childAst.templates[childAst.text] : childAst);
         if (matched) {
             if (isStructural) {
-                errorLogs.push(`ContentChild(ren) query does not currently support structural directive "${childAst.text}" -> ${matched.name}=${matched.value}`);
+                output.errorLogs.push(`ContentChild(ren) query does not currently support structural directive "${childAst.text}" -> ${matched.name}=${matched.value}`);
                 return;
             }
 
             // args to be pushed to contentChildren method
-            const qlAstNode = [matched.type || (childAst.type == 1 ? 'ElementRef' : 'TemplateRef'), matched.ql];
+            const qlAstNode = [matched.type || (childAst.type == 1 ? ckeyWords.ELEMENTREF : ckeyWords.TEMPLATEREF), matched.ql];
             const name = matched.name || matched.value;
             // const id = !contentChildrenMapper[parentAstNode.name] ? 
             if (!parentAstNode.cq)
@@ -206,7 +230,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                     pendingElements[parentAstNode.name][ctor.selector] = [parentAstNode, []]
                 // push the childlist
                 pendingElements[parentAstNode.name][ctor.selector][1].push(childAst);
-                pendingDependencies = true;
+                output.pendingDependencies = true;
                 return;
             }
             attachContentChildPlace(parentAstNode, childAst, query);
@@ -275,9 +299,12 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
     function attachViewChildToAst(astNode) {
         if (ctor.viewChild && ctor.viewChild.length) {
             const option = matchViewQueryFromAstNode(ctor.viewChild, astNode);
-            if (option) {
+            if (!option) return;
+
+            if (option.type !== ckeyWords.TEMPLATEREF)
                 astNode.vc = [option, ctor.selector];
-            }
+            else
+                output.vt[option.name] = TEMPLATE_KEY(option.value || option.name);
         }
     }
 
@@ -323,31 +350,18 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
      * @param {*} parent 
      */
     function buildStructuralDirectiveTemplates(astNode, parent) {
-        const definition = astNode.structuralDirective;
+        var dirName = astNode.structuralDirective.dirName;
+        const newAstNode = createDefaultTemplate(astNode.structuralDirective, astNode);
         delete astNode.structuralDirective;
-        if (definition.dirName == 'if') {
-            astNode = jIfCompiler(definition, astNode);
-        } else {
-            astNode = createDefaultTemplate(definition, astNode);
-        }
-
-        return astNode;
-    }
-
-    /**
-     * conditional template generator
-     * @param {*} definition
-     * @param {*} astNode
-     */
-    function jIfCompiler(definition, astNode) {
-        const newAstNode = createDefaultTemplate(definition, astNode);
-        if (newAstNode.props) {
-            for (var templateId in newAstNode.props) {
-                if (typeof newAstNode.props[templateId] !== 'object' && !newAstNode.templates[templateId]) {
-                    newAstNode.templates[templateId] = TEMPLATE_KEY(newAstNode.props[templateId]);
+        if (dirName == 'if') {
+            if (newAstNode.props) {
+                for (var templateId in newAstNode.props) {
+                    if (typeof newAstNode.props[templateId] !== 'object' && !newAstNode.templates[templateId]) {
+                        newAstNode.templates[templateId] = TEMPLATE_KEY(newAstNode.props[templateId]);
+                    }
                 }
             }
-        }
+        } else { }
 
         return newAstNode;
     }
@@ -388,7 +402,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         const refId = astNode.refId;
         const hasUseAttr = astNode.attr ? astNode.attr.use : null;
         if (hasUseAttr && len === 1) {
-            errorLogs.push(`<j-template> element does not support child elements with 'use' attribute. <j-template #${refId} use="${astNode.attr.use}"/ >`);
+            output.errorLogs.push(`<j-template> element does not support child elements with 'use' attribute. <j-template #${refId} use="${astNode.attr.use}"/ >`);
             return null;
         }
 
@@ -406,7 +420,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         if (parentAst && parentAst.name && parentAst.isc) {
             attachContentChildren(parentAst, hasUseAttr ? { refId: hasUseAttr, name: '#', children: [astNode] } : astNode);
         } else {
-            templatesMapHolder[refId] = astNode;
+            output.templatesMapHolder[refId] = astNode;
         }
 
         return null;
@@ -420,18 +434,18 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
      */
     function jPlaceCompiler(astNode, parent) {
         if (parent.isc) {
-            errorLogs.push(`<${parent.name}><j-place></j-place></${parent.name}> usage not allowed, please look at documentation for more info`);
+            output.errorLogs.push(`<${parent.name}><j-place></j-place></${parent.name}> usage not allowed, please look at documentation for more info`);
             return null;
         }
 
         // check for child content
         if (astNode.children) {
-            errorLogs.push(`<j-place/> element does not support child elements`);
+            output.errorLogs.push(`<j-place/> element does not support child elements`);
             return null;
         }
 
         if (astNode.refId && astNode.attr && astNode.attr.selector) {
-            errorLogs.push(`<j-place/> element does not support [selector] and [#REFID], please use [selector="#REFID"] instead`);
+            output.errorLogs.push(`<j-place/> element does not support [selector] and [#REFID], please use [selector="#REFID"] instead`);
             return null;
         }
 
@@ -461,7 +475,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
 
             // set the $ctx flag
             // $this refers to the child context instead of parent context
-            astNode.$ctx = astNode.attr.context == '$this';
+            astNode.$ctx = generateContext(astNode.attr);
             // remove the element
             delete astNode.attr;
         } else {
@@ -480,7 +494,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         let templateId = (astNode.attr && astNode.attr['template']) || (astNode.attr$ && astNode.attr$['template']);
         if (astNode.children && astNode.children.length && templateId) {
             templateId = helper.typeOf(templateId, 'object') ? templateId.prop.join('.') : templateId;
-            errorLogs.push(`<j-fragment template="${templateId}"/> does not support child elements and template linking.`);
+            output.errorLogs.push(`<j-fragment template="${templateId}"/> does not support child elements and template linking.`);
             return;
         }
 
@@ -488,7 +502,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             // it's possible to have a conditional template
             // we check for templateBinding and static reference
             if (astNode.attr) {
-                let propsMapper = `|${templateOptionsMapper.length}`;
+                let propsMapper = `|${output.templateOptionsMapper.length}`;
                 const obj = {};
                 if (astNode.props && astNode.providers) {
                     obj.props = astNode.props;
@@ -496,15 +510,15 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                 }
                 // generate context
                 obj.ctx$ = generateContext(astNode.attr);
-                templateOptionsMapper.push(obj);
+                output.templateOptionsMapper.push(obj);
                 return TEMPLATE_KEY(templateId + propsMapper);
             } else if (astNode.attr$) { // templateBinding found
-                return {
+                return ({
                     type: 13,
                     $templateId: templateId,
                     context: astNode.context,
                     _GT: TEMPLATE_KEY('GT')
-                };
+                });
             }
         }
 
@@ -521,7 +535,8 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                 return astAttr.data || null;
             } else if (/\{(.*)\}/.test(astAttr.context)) {
                 return parseAstJSON(`(${astAttr.context})`).expr;
-            }
+            } else if (astAttr.context == '$this')
+                return true;
         }
     }
 
@@ -543,7 +558,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
          */
         const _pushFilters = (deps) => {
             filterModel.fns.push(`%${deps.fn}%`);
-            providers[`${deps.fn}`] = deps.module;
+            output.providers[`${deps.fn}`] = deps.module;
         };
 
         if (!resolvedFilters.hasOwnProperty(pipeName)) {
@@ -552,7 +567,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                 resolvedFilters[pipeName] = deps;
                 _pushFilters(deps);
             } else {
-                errorLogs.push(`Unable to resolve pipe <${helper.colors.yellow(pipeName)}>. Please include pipe and recompile application.`)
+                output.errorLogs.push(`Unable to resolve pipe <${helper.colors.yellow(pipeName)}>. Please include pipe and recompile application.`)
             }
         } else {
             _pushFilters(resolvedFilters[pipeName]);
@@ -609,7 +624,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             } else
                 ast = parseAst(expression)[0];
         } catch (e) {
-            errorLogs.push(helper.colors.white(`${e.message} -> ${expression}`))
+            output.errorLogs.push(helper.colors.white(`${e.message} -> ${expression}`))
         }
 
         return ast;
@@ -624,7 +639,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
      */
     function checkDetachAbleElement(dir, restrictA, restrictB) {
         if (dir.indexOf(restrictA) > -1 && dir.indexOf(restrictB) > -1) {
-            errorLogs.push(restrictA + ' directive cannot be used with ' + restrictB + ' directive');
+            output.errorLogs.push(restrictA + ' directive cannot be used with ' + restrictB + ' directive');
         }
     }
 
@@ -636,30 +651,24 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
      * @param {*} ignoreCompilation 
      */
     function attributeParser(node, value, astNode, ignoreCompilation = false) {
-        if (ignoreCompilation) {
+        if (ignoreCompilation)
             return defaultAttrChecker();
-        }
 
         var firstCharMatcher = node.charAt(0);
-        if (helper.isContain(firstCharMatcher, charMatchers)) {
+        var splitProp = node.split('-');
+        if (helper.isContain(firstCharMatcher, charMatchers))
             parseFirstCharMatcher(firstCharMatcher, node, value);
-        } else if (helper.isContain('attr-', node)) {
+        else if (helper.is('attr', splitProp[0]))
             setAttributeBinder(node, value, true);
-        }
         /**
          * remove DataMatchers
          */
-        else if (helper.isContain('data-', node)) {
-            var propName = helper.camelCase(node.replace('data-', ''));
-            setObjectType(astNode, 'data', propName, value || propName);
-        } else if (helper.isContain('aria-', node)) {
-            var propName = helper.camelCase(node.replace('aria-', ''));
-            setObjectType(astNode, 'aria', propName, value);
-        } else if (interpolation.hasTemplateBinding(value)) {
+        else if (helper.isContain(splitProp[0], ['data', 'aria']))
+            setObjectType(astNode, splitProp.shift(), splitProp.join('-'), value || '');
+        else if (interpolation.hasTemplateBinding(value))
             setObjectType(astNode, 'attr$', node, astTextParser(value, true));
-        } else {
+        else
             defaultAttrChecker();
-        }
 
         function defaultAttrChecker() {
             // check for inline attr that requires update of value e.g src, inline styling
@@ -682,7 +691,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
          */
         function setAttributeBinder(attrName, attrValue, once = false) {
             if (interpolation.hasTemplateBinding(attrValue)) {
-                return errorLogs.push(`templating not allowed in binding segment ${attrName}=${attrValue}`);
+                return output.errorLogs.push(`templating not allowed in binding segment ${attrName}=${attrValue}`);
             }
 
             const props = helper.splitAndTrim(attrName.replace('attr-', ''), '.');
@@ -719,7 +728,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             props.attr[dirName] = true;
             const registeredDir = resolvers.getDirectives(dirName, props, componentClassName);
             if (!registeredDir.length) {
-                errorLogs.push(`Element <${astNode.name}> does not support this attribute [${dirName}]. if [${dirName}] is a customAttribute please create and register it.`);
+                output.errorLogs.push(`Element <${astNode.name}> does not support this attribute [${dirName}]. if [${dirName}] is a customAttribute please create and register it.`);
                 return;
             }
 
@@ -745,7 +754,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                 case (':'):
                 case ('*'):
                     if (value && value.match(interpolation.getDelimeter())) {
-                        return errorLogs.push(
+                        return output.errorLogs.push(
                             `[${node}] templating not allowed in directive binding.\n To add binding to a directive use the curly braces {${node}}`
                         );
                     }
@@ -826,7 +835,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
                 // set the item
                 setArrayType(astNode, 'events', item);
             } catch (e) {
-                errorLogs.push(helper.colors.white(`${e.message} -> ${value}`));
+                output.errorLogs.push(helper.colors.white(`${e.message} -> ${value}`));
             }
         }
 
@@ -868,12 +877,12 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
          */
         var invalidIdx = restrictedCombination.indexOf(dirName);
         if (invalidIdx > -1) {
-            errorLogs.push(`${dirName} cannot be used with ${restrictedCombination[invalidIdx]}`);
+            output.errorLogs.push(`${dirName} cannot be used with ${restrictedCombination[invalidIdx]}`);
             return;
         }
 
         if (astNode.structuralDirective) {
-            errorLogs.push(`${astNode.structuralDirective.dirName} directive cannot be used with ${dirName} directive`);
+            output.errorLogs.push(`${astNode.structuralDirective.dirName} directive cannot be used with ${dirName} directive`);
             return;
         }
 
@@ -916,7 +925,16 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             if (regExp.test(ast.prop)) {
                 const matched = ast.prop.match(regExp);
                 const checkerSplt = helper.splitAndTrim(ast.prop, matched[0]);
-                ast.prop = expressionAst(checkerSplt[1]);
+                const inbuiltMatch = /\$(range)\((.*?)\)/.exec(checkerSplt[1])
+                if (inbuiltMatch) {
+                    ast.prop = {
+                        type: 'raw',
+                        value: inBuildMethods[inbuiltMatch[1]].apply(null, inbuiltMatch[2].split(',').map(helper.simpleArgumentParser))
+                    };
+                } else {
+                    ast.prop = expressionAst(checkerSplt[1]);
+                }
+                
                 props[helper.camelCase(`${dirName}-${matched[0].trim()}`)] = ast;
                 astNode.context = astNode.context || {};
                 astNode.context[checkerSplt[0]] = '$context';
@@ -958,9 +976,8 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             }
         }
 
-        if (!astNode[prop]) {
+        if (!astNode[prop])
             astNode[prop] = {};
-        }
 
         if (parse) {
             value = interpolation.removeFilters(value, pipesProvider);
@@ -996,7 +1013,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
     function _attachProviders(definition, element, attachProps) {
         element.providers = element.providers || [];
         definition.forEach(def => {
-            providers[`${def.fn}`] = def.obj.module;
+            output.providers[`${def.fn}`] = def.obj.module;
             element.providers.push(`%${def.fn}%`);
             if (attachProps) {
                 for (const prop in def.obj.props) {
@@ -1013,20 +1030,20 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
      * @param {*} elementAstNode 
      */
     function _validateCustomElementAndThrowError(elementAstNode) {
-        if (helper.isContain(elementAstNode.name, ctor.selector || '')) {
-            errorLogs.push(`Element <${elementAstNode.name}> cannot call itself, this will result to circular referencing`);
+        if (helper.is(elementAstNode.name, ctor.selector || '')) {
+            output.errorLogs.push(`Element <${elementAstNode.name}> cannot call itself, this will result to circular referencing`);
         }
 
         // check for cached elements
         const cached = resolvedElements[elementAstNode.name];
         const definition = (cached ? cached.definition : resolvers.getElement(elementAstNode.name, componentClassName));
         if (!definition.length) {
-            errorLogs.push(`Cannot find Element <${elementAstNode.name}>, if this is a custom Element please register it`);
+            output.errorLogs.push(`Cannot find Element <${elementAstNode.name}>, if this is a custom Element please register it`);
             return;
         }
 
         if (definition.length > 1) {
-            errorLogs.push(`There are ${helper.colors.yellow(definition.length)} implentations found for element<${helper.colors.yellow(elementAstNode.name)}> ${definition.map(def => helper.colors.yellow(def.obj.module + ':'+ def.fn)).join(' | ')}, please resolve error and try again.`);
+            output.errorLogs.push(`There are ${helper.colors.yellow(definition.length)} implentations found for element<${helper.colors.yellow(elementAstNode.name)}> ${definition.map(def => helper.colors.yellow(def.obj.module + ':'+ def.fn)).join(' | ')}, please resolve error and try again.`);
             return;
         }
 
@@ -1036,7 +1053,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
             props.forEach(prop => {
                 if (!helper.isContain(prop.split('-')[0], standardAttributes) && (!definition[0].obj.props ||
                     !isPropertyValueMap(prop, definition[0].obj.props) && !_isDirective(prop))) {
-                    errorLogs.push(`Element <${helper.colors.yellow(elementAstNode.name)}> does not support this property {${helper.colors.yellow(prop)}}`);
+                    output.errorLogs.push(`Element <${helper.colors.yellow(elementAstNode.name)}> does not support this property {${helper.colors.yellow(prop)}}`);
                 }
             });
         }
@@ -1091,7 +1108,7 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         isequal('input', EventHandler.getEventType(this.nativeElement));
     }
 
-    var parsedContent = parser(htmlContent, {
+    output.parsedContent = parser(htmlContent, {
         normalizeWhitespace: true,
         lowerCaseAttributeNames: false,
         decodeEntities: true
@@ -1113,12 +1130,5 @@ module.exports = function (htmlContent, ctor, resolvers, componentClassName, fil
         delete pendingElements[ctor.selector];
     }
 
-    return {
-        errorLogs,
-        parsedContent,
-        templateOptionsMapper,
-        templatesMapHolder,
-        providers,
-        pendingDependencies
-    };
+    return output;
 }

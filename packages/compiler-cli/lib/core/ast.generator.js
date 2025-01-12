@@ -1,4 +1,4 @@
-const esprima = require('esprima');
+const esprima = require('espree');
 const helper = require('@jeli/cli/lib/utils');
 const escodegen = require('escodegen');
 const comment = require('./comment');
@@ -54,10 +54,11 @@ exports.generateAstSource = (source, currentProcess, isEntry) => {
             attachComment: false,
             range: false,
             loc: false,
-            sourceType: deduceSourceType(source)
+            sourceType: deduceSourceType(source),
+            ecmaVersion: 2022
         });
     } catch (e) {
-        throw e.message;
+       throw e.message;
     }
 
     const sourceOutlet = {
@@ -84,8 +85,6 @@ exports.generateAstSource = (source, currentProcess, isEntry) => {
             case (ASTDeclarations.EXPORT_DEFAULT):
                 if (expression.declaration) {
                     switch (expression.declaration.type) {
-                        case (ASTDeclarations.CLASS):
-                            throw new Error('Class exportation not yet supported');
                         case (ASTDeclarations.VARIABLE):
                             currentProcess.exports.push({
                                 local: expression.declaration.declarations[0].id.name,
@@ -95,15 +94,15 @@ exports.generateAstSource = (source, currentProcess, isEntry) => {
                             pushDeclarations(expression.declaration.declarations[0].id.name, 'vars');
                             break;
                         case (ASTDeclarations.FUNCTION):
+                        case (ASTDeclarations.CLASS):
                             var name = (expression.declaration.id || { name: 'default' }).name;
                             currentProcess.exports.push({
                                 local: name,
                                 exported: helper.is(expression.type, ASTDeclarations.EXPORT_DEFAULT) ? 'default' : name
                             });
                             sourceOutlet.scripts.push(expression.declaration);
-                            if (name !== 'default') {
+                            if (name !== 'default')
                                 pushDeclarations(name, 'fns');
-                            }
                             break;
                         case (ASTIdentifier):
                             currentProcess.exports.push({

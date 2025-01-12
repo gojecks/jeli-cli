@@ -4,14 +4,17 @@ Element({
     templateUrl: './[FILENAME].html',
     styleUrl: './[FILENAME].[STYLING]'
 })
-export function [NAME]Element() {
-    [SCRIPTCONTENT]
-}
+export class [NAME]Element {
+    
+    constructor(){
+        [SCRIPTCONTENT]
+    }
 
-[NAME].prototype.didInit = function(){
-    console.log('[NAME] did initialize');
-}
+    didInit(){
+        console.log('[NAME] did initialize');
+    }
 
-[NAME].prototype.viewDidDestroy = function(){
-    console.log('[NAME] view did destroy');
+    viewDidDestroy(){
+        console.log('[NAME] view did destroy');
+    }
 }

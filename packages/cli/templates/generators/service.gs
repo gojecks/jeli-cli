@@ -1,6 +1,6 @@
 
 
 Service()
-export function [NAME]Service() {
-
+export class [NAME]Service {
+    constructor(){}
 }

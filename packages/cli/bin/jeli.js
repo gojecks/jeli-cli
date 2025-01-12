@@ -9,7 +9,7 @@ const levenAsync = import('leven')
 const localNodeModules = path.join(process.cwd(), 'node_modules/');
 let localVersion =  null;
 try {
-   localVersion = require(`${localNodeModules}/@jeli/cli/package.json`).version
+    localVersion = require(`${localNodeModules}/@jeli/cli/package.json`).version
 } catch(e){ }
 
 const getDepPath = dep  => `${localVersion ? localNodeModules : '' }${dep}`;
@@ -70,6 +70,7 @@ program
 program
     .command('build [entry]')
     .description('name of project to build as specified in jeli.json configuration')
+    .option('--all', 'build all projects defined in jeli.json configuration')
     .option('-f, --cwd <workspace>', 'Change current working directory')
     .option('-v, --version <version>', 'version number to be built')
     .option('--configuration <configiration>', 'choose configuration to compile with')
@@ -78,6 +79,7 @@ program
     .option('--assetURL', 'url where assets will be deployed, usesfull when resolving from a cdn')
     .action((entry, args) => {
         useLocalDep('@jeli/dev-cli', 'build').build(entry, {
+            all: !!args.all,
             configuration: args.configuration,
             buildOptions: jeliUtils.extractArgs(['cwd', 'prod', 'version', 'baseHref', 'assetURL'], args),
             compilerPath: getDepPath('@jeli/compiler-cli')

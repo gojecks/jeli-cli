@@ -2,8 +2,8 @@
 Service({
     name: '[NAME]'
 })
-export function [NAME]Pipe() {
-    this.compile = function(value){
+export class [NAME]Pipe {
+    compile(value){
         return value;
     }
 }

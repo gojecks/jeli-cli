@@ -5,7 +5,8 @@ const aotCompiler = require('./compilers/aot');
 const jitCompiler = require('./compilers/jit');
 const { outputApplicationFiles, outputLibraryFiles, pushStyle, styleChanges, copyAndUpdateAssetsFile } = require('./output');
 const { attachViewSelectorProviders } = require('./view.provider');
-const annotationProps = ['name', 'selector', 'exportAs', 'module'];
+const { ckeyWords } = require('../utils/keywords');
+const annotationProps = [ckeyWords.NAME, ckeyWords.SELECTOR, ckeyWords.EXPORTAS, ckeyWords.MODULE];
 /**
  * 
  * @param {*} compilerObject 
@@ -23,7 +24,7 @@ async function CoreGenerator(componentsResolver, entry, changes) {
      * @returns ctors 
      */
     const getCtors = (ctors, definition) => ctors.reduce((accum, key) => (((definition[key]) ? accum[key] = definition[key] : null), accum), {});
-    
+
     /**
      * compiles each annotation type found in project workspace
      * @param {*} definition 
@@ -35,22 +36,37 @@ async function CoreGenerator(componentsResolver, entry, changes) {
         let ctorAttrs = [];
         const annotationName = definition.type.toLowerCase();
 
-        if (['service', 'pipe'].includes(annotationName)) {
+        if ([ckeyWords.SERVICE, ckeyWords.PIPE].includes(annotationName)) {
             ctor = compilerObject.Service[definition.fn];
-            ctorAttrs = ['name', 'DI'];
+            ctorAttrs = [ckeyWords.DI];
             // attach ctor attributes
             attachCtorToDefinition();
             if (ctor.static) {
                 definition.annotations.push(`${definition.fn}.ctors.instance = ${definition.fn};`);
             }
-        } else if (['directive', 'element'].includes(annotationName)) {
+        } else if ([ckeyWords.DIRECTIVE, ckeyWords.ELEMENT].includes(annotationName)) {
             ctor = compilerObject[definition.type][definition.fn];
-            if (!ctor.module) {
+            if (!ctor.module && !ctor.standAlone) {
                 helper.console.warn(`${helper.colors.yellow(definition.fn)} is not registered to any Module`);
                 return;
             }
+
+            if (ctor.module && ctor.standAlone) {
+                helper.console.warn(`${helper.colors.red(definition.fn)} is registered to Module<${helper.colors.red(ctor.module)}> and cannot be standalone`);
+                return;
+            }
             // attach ctor attributes
-            ctorAttrs = ['selector', 'events', 'exposeView', 'props', 'DI', 'resolve', 'exportAs'];
+            ctorAttrs = [
+                ckeyWords.SELECTOR,
+                ckeyWords.EVENTS,
+                ckeyWords.EXPOSEVIEW,
+                ckeyWords.PROPS,
+                ckeyWords.DI,
+                ckeyWords.RESOLVE,
+                ckeyWords.EXPORTAS,
+                ckeyWords.ASNATIVE
+            ];
+
             attachCtorToDefinition();
             if (helper.is(definition.type, 'Element')) {
                 await generateElementAst();
@@ -65,14 +81,24 @@ async function CoreGenerator(componentsResolver, entry, changes) {
 
             if (compilerObject.jModule[definition.fn].requiredModules && compilerObject.jModule[definition.fn].requiredModules.length) {
                 const requiredModule = compilerObject.jModule[definition.fn].requiredModules;
-                definition.annotations.push(`${definition.fn}.fac = () =>/** bootstrap module**/${helper.objectStringToAsIs(requiredModule)}.forEach(m => { if(!m.k && typeof m == 'function') return (m.fac && m.fac(), m(), m.k = 1); });\n;`);
+                definition.annotations.push(`${definition.fn}.fac = () =>/** bootstrap module**/${helper.objectStringToAsIs(requiredModule)}.forEach(m => { if(!m.k && typeof m == 'function') return (m.fac && m.fac(), new m(), m.k = 1); });\n;`);
             }
         }
 
 
         function attachCtorToDefinition() {
             const ctors = getCtors(ctorAttrs, ctor);
+            const asNative = ctors.asNative;
+            if (asNative && helper.typeOf(asNative, 'object'))
+                ctors.asNative = true;
+
             definition.annotations.push(`${definition.fn}.ctors = ${helper.objectStringToAsIs(ctors, annotationProps)};`);
+            // as native web component
+            if (asNative) {
+                const attributes = JSON.stringify(Object.keys(ctor.props).reduce((accum, key) => (accum[helper.kebabCase(key)] = [helper.removeSingleQuote(ctor.props[key].type || '-'), key], accum), {}));
+                definition.annotations.push(`\n//register webcomponent\n\tcustomElements.define('${asNative.selector || ctor.selector}', core.createCustomElement(${definition.fn}, ${attributes}));`);
+            }
+
             helper.quoteFix(annotationProps, ctor);
         }
 
@@ -121,6 +147,9 @@ async function CoreGenerator(componentsResolver, entry, changes) {
                 if (parsedHtml.errorLogs.length) {
                     helper.console.header(`\nTemplateCompilerError -> Element<${definition.fn}> : ${filePath}`);
                     parsedHtml.errorLogs.forEach(helper.console.error);
+                    if(!changes){
+                        helper.abort('Fix errors and try again');
+                    }
                 }
 
                 if (!parsedHtml.pendingDependencies) {
@@ -128,10 +157,20 @@ async function CoreGenerator(componentsResolver, entry, changes) {
                 } else {
                     definition.pending = parsedHtml;
                 }
+            } else if (ctor.asNative) {
+                viewSelectorProvider(filePath, { createCustomElement: "@jeli/core" });
             }
 
             // remove unsed mapping from the ctors
-            ['template', 'templateUrl', 'styleUrl', 'style', 'viewChild', 'viewChildren'].forEach(key => (delete ctor[key]));
+            [
+                ckeyWords.TEMPLATE,
+                ckeyWords.TEMPLATEURL,
+                ckeyWords.STYLEURL,
+                ckeyWords.STYLE,
+                ckeyWords.VIEWCHILD,
+                ckeyWords.CONTENTCHILD,
+                ckeyWords.CONTENTCHILDREN
+            ].forEach(key => (delete ctor[key]));
         }
     }
 
@@ -142,19 +181,6 @@ async function CoreGenerator(componentsResolver, entry, changes) {
      * @param {*} parsedHtml 
      */
     function pushView(definition, filePath, parsedHtml) {
-        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ ${generateView(filePath, parsedHtml)}/** template loader **/`);
-    }
-
-   
-
-
-    /**
-     * 
-     * @param {*} processFilePath 
-     * @param {*} parsedHtml 
-     */
-    function generateView(processFilePath, parsedHtml) {
-        const imports = compilerObject.files[processFilePath].imports;
         const templateKeys = Object.keys(parsedHtml.templatesMapHolder);
         let output = '';
         if (compilerObject.buildOptions.AOT) {
@@ -163,14 +189,13 @@ async function CoreGenerator(componentsResolver, entry, changes) {
             output = jitCompiler(parsedHtml);
         }
 
-        viewSelectorProvider(parsedHtml.providers, imports).forEach(replaceProviders);
-
-        function replaceProviders(viewProvider) {
+        viewSelectorProvider(filePath, parsedHtml.providers, viewProvider => {
             output = output.replace(new RegExp(`"%${viewProvider.providerName}%"`, 'g'), !viewProvider.outputName ? `${viewProvider.providerName}` : `${viewProvider.outputName}.${viewProvider.providerName}`);
-        }
+        });
 
-        return output;
+        definition.annotations.push(`${definition.fn}.view = /** jeli template **/ ${output}/** template loader **/`);
     }
+
 
     function generateScript(definition) {
         return `/** compiled ${definition.fn} **/\nvar ${definition.fn} = function(){\n"use strict";\n\n${definition.annotations.join('\n\n')}\nreturn ${definition.fn};\n}();\n`;
@@ -199,9 +224,8 @@ async function CoreGenerator(componentsResolver, entry, changes) {
          * @param {*} filePath 
          */
         async function scriptGeneratorParser(filePath) {
-            if (changes && changes.filePath && !helper.is(changes.filePath, filePath)) {
+            if (changes && changes.filePath && !helper.is(changes.filePath, filePath))
                 return;
-            }
 
             const implementation = compilerObject.output.modules[filePath];
             if (implementation && implementation.annotations) {
@@ -237,7 +261,7 @@ exports.generateApp = async function (componentsResolver, name, changes) {
         } else {
             await CoreGenerator(componentsResolver, name, changes);
         }
-    } catch(e) {
+    } catch (e) {
         // throw new Error('Core: Failed to compile application')
         console.error(e)
     }

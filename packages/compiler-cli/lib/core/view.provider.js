@@ -6,9 +6,13 @@ exports.attachViewSelectorProviders = (compilerObject) => {
     const filePaths = Object.keys(compilerObject.files);
     const globalImports = Object.keys(compilerObject.globalImports);
 
-    return (providers, imports) => {
-        return Object.keys(providers).map(providerName => {
-            return attachToImportMapping(providers[providerName], providerName, imports);
+    return (filePath, providers, callback) => {
+        const imports = compilerObject.files[filePath].imports;
+        Object.keys(providers).forEach(providerName => {
+            const importRef = attachToImportMapping(providers[providerName], providerName, imports);
+            if (callback){
+                callback(importRef);
+            }
         });
     };
 

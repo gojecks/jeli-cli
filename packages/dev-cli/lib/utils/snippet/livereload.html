@@ -9,21 +9,22 @@
       var protocol = window.location.protocol === 'http:' ? 'ws://' : 'wss://';
       var address = protocol + window.location.host + window.location.pathname + '/ws';
       var socket = null;
-      var retryTimer = 1000;
+      var retryTimer = 1;
       var retryCount = 0;
 
       function ConnectSocket() {
         if (retryCount) {
           console.log(`trying to reconnect... count-> ${retryCount}`);
-          if (retryCount > 10) {
-            retryTimer = 60000;
+          if (retryCount >= 10) {
+            if (retryTimer > 1) return;
+            retryTimer = 60;
             retryCount = 0;
           }
         }
         var socket = new WebSocket(address);
         socket.addEventListener('close', function() {
           retryCount++;
-          setTimeout(ConnectSocket, (retryTimer * retryCount));
+          setTimeout(ConnectSocket, ((retryTimer * 1000)  * retryCount));
         });
 
         socket.addEventListener('open', function() {

@@ -201,10 +201,13 @@ class ComponentsResolver  {
             // remove all mapped annotations 
             if (obj && obj.annotations) {
                 obj.annotations.forEach(annot => {
-                    if (components.includes(annot.type)) {
-                        moduleName = this.compilerObject[annot.type][annot.fn].module;
-                    }
-                    delete this.compilerObject[annot.type][annot.fn];
+                    try {
+                        if (components.includes(annot.type) && this.compilerObject[annot.type])
+                            moduleName = this.compilerObject[annot.type][annot.fn].module;
+                        
+                        // remove annotation name                        
+                        delete this.compilerObject[annot.type][annot.fn];
+                    } catch(e) {}
                 });
             }
             // empty file cache for recompilation

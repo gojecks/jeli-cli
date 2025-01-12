@@ -82,7 +82,7 @@ async function processFile(componentsResolver, filePath, parentPath, lazyLoadMod
             await importFile(componentsResolver, impItem, filePath, isExternalModule, lazyLoadModulePath);
         }
 
-        const otherScripts = escogen(source.scripts);
+        const otherScripts = source.raw || escogen(source.scripts);
         if (!isEntry)
             outputAst.source.push(otherScripts);
         else
@@ -92,9 +92,8 @@ async function processFile(componentsResolver, filePath, parentPath, lazyLoadMod
          */
         await annotationParser(source.annotations, filePath, outputAst, componentsResolver);
         inProgress.splice(inProgress.indexOf(filePath), 1);
-        if (!isEntry) {
+        if (!isEntry)
             componentsResolver.addOutPutEntry(filePath, outputAst);
-        }
     } catch (err) {
         loader.spinner.fail('');
         helper.console.error(`\nError while compiling ${helper.colors.yellow(filePath)} ${parentPath ? ' imported in ' + helper.colors.yellow(parentPath) : ''}`);
@@ -156,7 +155,8 @@ async function importFile(componentsResolver, importItem, parentPath, isExternal
         }
     } catch (exception) {
         helper.console.error('compilation stopped');
-        helper.abort(`unable to resolve dependency ${importItem.source} -> ${parentPath}`);
+        helper.abort(`unable to resolve dependency ${importItem.source} -> ${parentPath}\n Reasons: ${exception.message || exception}`);
+
     }
 }
 
@@ -223,7 +223,16 @@ function hasInvalidImport(importItem, exportedItem) {
 
 
 exports.loadSource = (filePath, componentsResolver, fileAst, isEntry) => {
-    let source = loader.readFile(filePath, false, false, componentsResolver.compilerObject.buildOptions.replace);
+    const source = loader.readFile(filePath, false, false, componentsResolver.compilerObject.buildOptions.replace);
+    // check for already compiled script
+    if (['define.amd'].some(a => helper.isContain(a, source))) {
+        return {
+            raw: source,
+            annotations: [],
+            sourceType: 'script'
+        }; 
+    }
+
     return generateAstSource(extractRequired(componentsResolver, source, filePath), fileAst, isEntry);
 };
 

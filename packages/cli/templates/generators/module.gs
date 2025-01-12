@@ -7,4 +7,4 @@ jModule({
         [MODULES]
     ][SELECTORS][SERVICES][ROOTELEMENT]
 })
-export function [NAME]Module() { }
+export class [NAME]Module { }

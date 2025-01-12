@@ -155,7 +155,7 @@ exports.CoreQuerySelector = (compilerObject, type, selector, componentName, elem
     if (isElementScan && found.length) return found;
     // find in requiredModules
     const parentModule = compilerObject.jModule[startModule];
-    if (parentModule.requiredModules) {
+    if (parentModule?.requiredModules) {
         findInRequiredModules(parentModule.requiredModules);
     }
 

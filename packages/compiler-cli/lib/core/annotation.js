@@ -2,13 +2,7 @@ const helper = require('@jeli/cli/lib/utils');
 const { escogen, parseAst } = require('./ast.generator');
 const { parseQuery } = require('./query_selector');
 const loader = require('./loader');
-const AnnotationsEnum = {
-    SERVICES: 'SERVICES',
-    REQUIREDMODULES: 'REQUIREDMODULES',
-    SELECTORS: 'SELECTORS',
-    EXPORTS: 'EXPORTS',
-    ROOTELEMENT: 'ROOTELEMENT'
-};
+const { AnnotationsEnum, ckeyWords } = require('../utils/keywords');
 
 /**
  * 
@@ -26,19 +20,20 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
         _structureDI(ast.definitions);
         _validateDI(ast.definitions.DI, fn, fn);
         switch (ast.type.toLowerCase()) {
-            case ('directive'):
-            case ('element'):
+            case (ckeyWords.DIRECTIVE):
+            case (ckeyWords.ELEMENT):
                 _registerOrThrowError(ast.type, fn, ast.definitions,
                     `Class ${helper.colors.yellow(fn)} is already registered, please use a prefix to differentiate them.`);
-                elementParser(ast.definitions, ast.type, fn);
+                ctorParser(ast.definitions, ast.type);
                 break;
-            case ('service'):
-            case ('provider'):
-            case ('pipe'):
+            case (ckeyWords.SERVICE):
+            case (ckeyWords.PROVIDER):
+            case (ckeyWords.PIPE):
                 _registerOrThrowError('Service', fn, ast.definitions,
                     `Service ${helper.colors.yellow(fn)} is already registered, please rename Class or use a prefix`);
+                    ctorParser(ast.definitions, ast.type);
                 break;
-            case ('jmodule'):
+            case (ckeyWords.JMODULE):
                 _registerOrThrowError(ast.type, fn, ast.definitions, `Modules ${helper.colors.yellow(fn)} is already registered.`);
                 validateModule(ast.definitions, fn);
                 break;
@@ -154,9 +149,8 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                 const element = componentsResolver.getLocalSelector(elementFn);
                 if (helper.typeOf(elementFn, 'object')) {
                     if (elementFn.useExisting && elementFn.selector) {
-                        if (!element) {
+                        if (!element)
                             return compilerError.push(`${elementFn.useExisting} is registered in ${fnName} module but implementation does not exists.`);
-                        }
 
                         // create a new reactive class from build
                         const newClassName = helper.pascalCase(elementFn.selector);
@@ -165,6 +159,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                             module: fnName,
                             link: element
                         });
+                        
                         componentsResolver.addEntry(elementFn.selector.includes('-') ? 'Element' : 'Directive', newClassName, newInstance)
                         return;
                     }
@@ -281,7 +276,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                 if (isdeps) return `[${parseDI(value)}]`;
                 return `[${d.map(v => strinifyObj(v))}]`;
             }
-            return value;
+            return (typeof value == 'object' ? JSON.stringify(value) : value);
         }
 
         return `{${token.join(', ')}}`;
@@ -302,10 +297,9 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
      * 
      * @param {*} obj 
      * @param {*} type 
-     * @param {*} fnName 
      */
-    function elementParser(obj, type, fnName) {
-        const isElement = (type !== 'Directive');
+    function ctorParser(obj, type) {
+        const isElement = (type == 'Element');
         /**
          * Attach the name of the Class to the Annotation
          * this will be use for dictionary purpose
@@ -320,7 +314,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
             /**
              * input:type=text:model:form-field, textarea
              */
-            if (/[,|:=!]/g.test(obj.selector)) {
+            if (obj.selector && /[,|:=!]/g.test(obj.selector)) {
                 componentsResolver.addEntry('queries', obj.selector, parseQuery(obj.selector))
             }
 
@@ -338,7 +332,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                      Which states a custom element should contain an hyphen e.g <my-element>`);
                 }
 
-                ParseChild(obj, ['viewChild', 'contentChild', 'contentChildren']);
+                ParseChild(obj, [ckeyWords.VIEWCHILD, ckeyWords.CONTENTCHILD, ckeyWords.CONTENTCHILDREN]);
             }
 
         } catch (e) {
@@ -374,10 +368,10 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
 
                 obj[prop] = obj[prop].reduce((accum, item) => {
                     item = helper.stringToObjectNameValueMapping(item, true, true, true);
-                    if (['contentChild'].includes(prop) && item.ql) {
+                    if ([ckeyWords.CONTENTCHILD].includes(prop) && item.ql) {
                         compilerError.push(`QueryList cannot be used with ${prop} -> ${item}`);
                         return accum;
-                    } else if ('contentChildren' == prop && !item.ql) {
+                    } else if (ckeyWords.CONTENTCHILDREN == prop && !item.ql) {
                         compilerError.push(`${prop} must be used with a QueryList  -> ${item}`);
                         return accum;
                     }

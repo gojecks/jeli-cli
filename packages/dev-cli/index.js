@@ -25,21 +25,11 @@ const getPackageJson = folder => {
     return JSON.parse(fs.readFileSync(path.join(process.cwd(), folder || '', './package.json')) || '{}');
 }
 
-/**
- * 
- * @param {*} entry 
- * @param {*} options 
- * @param {*} startDevServer 
- */
-exports.build = async function build(entry, options, startDevServer) {
-    const jeliSchemaJSON = getSchema();
-    const jeliCompiler = require(options.compilerPath);
-    entry = entry || jeliSchemaJSON.default;
+function checkAndValidateProjectConfigs(jeliSchemaJSON, entry, options) {
     if (!jeliSchemaJSON.projects.hasOwnProperty(entry)) {
         jeliUtils.abort(`\n unable to find project ${entry} in schema`);
     }
 
-    // set entry projectSchema
     const projectSchema = jeliSchemaJSON.projects[entry];
     if (options.configuration && projectSchema.configurations) {
         if (projectSchema.configurations && !projectSchema.configurations[options.configuration]) {
@@ -49,11 +39,9 @@ exports.build = async function build(entry, options, startDevServer) {
         jeliUtils.console.write(`using ${options.configuration} configuration`);
         // passed through commnand line
         const configuration = projectSchema.configurations[options.configuration];
-        if (configuration.serverOptions) {
-            Object.assign(options.serverOptions, configuration.serverOptions);
-        } else if (configuration.buildOptions) {
-            Object.assign(options.buildOptions, configuration.buildOptions);
-        }
+        Object.keys(configuration).forEach(key => {
+            Object.assign(options[key], configuration[key]);
+        })
     }
 
     // extend project schema with configuration options
@@ -65,31 +53,50 @@ exports.build = async function build(entry, options, startDevServer) {
         }
     }
 
-    /**
-     * change working directory
-     */
-    changeCWD(options.buildOptions.cwd);
-
-    /**
-     * start devServer and watcher
-     */
-    if (options.serverOptions) {
-        startDevServer(projectSchema.sourceRoot, Object.values(jeliSchemaJSON.resolve.alias)
-        .map(t => path.resolve(t)));
-    }
-
-    /**
-     * compile project
-     */
-    await jeliCompiler.builder(projectSchema, options.buildOptions, jeliSchemaJSON.resolve);
+    return projectSchema;
 }
 
 /**
  * 
  * @param {*} entry 
  * @param {*} options 
+ * @param {*} callback 
+ * @returns 
  */
-exports.serve = async function(entry, options) {
+exports.build = async function build(entry, options, callback) {
+    if (options.all) return this.buildAll(options);
+    const jeliSchemaJSON = getSchema();
+    const jeliCompiler = require(options.compilerPath);
+    entry = entry || jeliSchemaJSON.default;
+    // set entry projectSchema
+    const projectSchema = checkAndValidateProjectConfigs(jeliSchemaJSON, entry, options);
+    // change working directory
+    changeCWD(options.buildOptions.cwd);
+    const done = await jeliCompiler.builder(projectSchema, options.buildOptions, jeliSchemaJSON.resolve);
+    if (done && callback) {
+        callback(projectSchema, jeliSchemaJSON.resolve.alias)
+    }
+}
+
+exports.buildAll = async function (options) {
+    const jeliSchemaJSON = getSchema();
+    const jeliCompiler = require(options.compilerPath);
+    // change working directory
+    changeCWD(options.buildOptions.cwd);
+    for (const name in jeliSchemaJSON.projects) {
+        jeliUtils.console.write(`\nCompiling project ${name}\n`)
+        const projectSchema = checkAndValidateProjectConfigs(jeliSchemaJSON, name, options);
+        await jeliCompiler.builder(projectSchema, options.buildOptions, jeliSchemaJSON.resolve);
+    }
+}
+
+/**
+ * 
+ * @param {*} entry 
+ * @param {*} options 
+ * @param {*} callback 
+ */
+exports.serve = async function (entry, options) {
     const { genServerOptions, attachListeners, cleanup } = require('./lib/server/utils');
     const jeliCompiler = require(options.compilerPath);
     const os = require('os');
@@ -107,15 +114,15 @@ exports.serve = async function(entry, options) {
          * create server
          */
         const server = httpServer(serverOptions);
-        server.listen(serverOptions.port, serverOptions.host, function() {
+        server.listen(serverOptions.port, serverOptions.host, function () {
             var canonicalHost = jeliUtils.is(serverOptions.host, '127.0.0.1') ? 'localhost' : serverOptions.host,
                 protocol = serverOptions.ssl ? 'https://' : 'http://';
 
             jeliUtils.console.setInitial(jeliUtils.colors.yellow('Starting up local server, \nAvailable on:'));
 
             if (jeliUtils.is(serverOptions.host, '0.0.0.0')) {
-                Object.keys(ifaces).forEach(function(dev) {
-                    ifaces[dev].forEach(function(details) {
+                Object.keys(ifaces).forEach(function (dev) {
+                    ifaces[dev].forEach(function (details) {
                         if (details.family === 'IPv4') {
                             jeliUtils.console.setInitial(('  ' + protocol + details.address + ':' + jeliUtils.colors.green(serverOptions.port.toString())));
                         }
@@ -154,16 +161,16 @@ exports.serve = async function(entry, options) {
      * @param {*} sourceRoot 
      * @param {*} resolveAliasPaths 
      */
-    async function serveAndWatch(sourceRoot, resolveAliasPaths){
+    async function serveAndWatch(sourceRoot, resolveAliasPaths) {
         const server = startServer();
         if (options.buildOptions.watch) {
             const watchFolders = {
-                root:[sourceRoot],
+                root: [sourceRoot],
                 resolveAliasPaths
             };
-            
+
             let pending = false;
-            await watchFn(watchFolders, async(path, event, isExternalModule) => {
+            await watchFn(watchFolders, async (path, event, isExternalModule) => {
                 if (!pending) {
                     server.pushEvent('compiling');
                     pending = true;
@@ -187,11 +194,15 @@ exports.serve = async function(entry, options) {
      * trigger the build instance
      */
     try {
-        exports.build(entry, options, serveAndWatch);
+        await exports.build(entry, options, (projectSchema, alias) => {
+            // start devServer and watcher
+            serveAndWatch(projectSchema.sourceRoot, Object.values(alias)
+                .map(t => path.resolve(t)));
+        });
     } catch (err) {
         jeliUtils.abort(err.message);
     }
 
 }
 
-exports.test = function(entry, options) {};
+exports.test = function (entry, options) { };
