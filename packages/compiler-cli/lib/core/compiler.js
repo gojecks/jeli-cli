@@ -83,17 +83,19 @@ async function processFile(componentsResolver, filePath, parentPath, lazyLoadMod
         }
 
         const otherScripts = source.raw || escogen(source.scripts);
-        if (!isEntry)
+        if (!isEntry) {
             outputAst.source.push(otherScripts);
-        else
+        } else {
             componentsResolver.pushGlobalOutPut(otherScripts);
+        }
         /**
          * process all file annotations
          */
         await annotationParser(source.annotations, filePath, outputAst, componentsResolver);
         inProgress.splice(inProgress.indexOf(filePath), 1);
-        if (!isEntry)
+        if (!isEntry){
             componentsResolver.addOutPutEntry(filePath, outputAst);
+        }
     } catch (err) {
         loader.spinner.fail('');
         helper.console.error(`\nError while compiling ${helper.colors.yellow(filePath)} ${parentPath ? ' imported in ' + helper.colors.yellow(parentPath) : ''}`);
@@ -131,11 +133,10 @@ async function importFile(componentsResolver, importItem, parentPath, isExternal
         const isLib = componentsResolver.compilerObject.isLib;
         if (!resolvedDep) {
             let importFilePath = addExt(importItem.source);
-            /**
-             * check for glob import
-             */
-            if (helper.isContain('*', importFilePath))
+            // check for glob import
+            if (helper.isContain('*', importFilePath)){
                 return loader.spinner.warn(helper.colors.yellow(`glob patterns not allowed in statement: ${parentPath} -> ${importFilePath}`));
+            }
 
             importFilePath = path.join(parentPath, '..', importFilePath);
             await processFile(componentsResolver, importFilePath, parentPath, lazyLoadModulePath, isExternalModule, importItem);
@@ -180,6 +181,7 @@ function extractRequired(componentsResolver, source, filePath) {
                 componentsResolver.addOutPutEntry(value, {
                     type: key,
                     path: value,
+                    within:filePath,
                     source: [loader.readFile(value)]
                 });
                 return `__required(${getIndex(value)}, 'exports')`;

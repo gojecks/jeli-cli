@@ -6,14 +6,14 @@
     <%=entry%>
 }, (function(modules,  self) { 
     'use strict';
-    var OD = Object.defineProperty,
+    const OD = Object.defineProperty,
     dep_name = 'jeli_chunk_loaded',
     buildArgs = <%=buildArgs%>,
     installedModules = {buildArgs},
     pendingLazyLoad = [];
     OD(self, dep_name, {
-        set: function(value) {
-            Object.assign(modules, value || {});
+        set: (value) => {
+            Object.assign(modules, value || {})
         }
     });
 
@@ -31,8 +31,8 @@
     }
 
     function loadScript(mid){
-        var scriptElement = document.createElement('script');
-        var path = [buildArgs.assetURL || '', mid, ".js"].join('')
+        const scriptElement = document.createElement('script');
+        const path = [buildArgs.assetURL || '', mid, ".js"].join('')
         scriptElement.src = path;
         scriptElement.type = "module";
         scriptElement.async = true;
@@ -47,33 +47,27 @@
 
     __required.r = function(context, name, value) {
         if (!context.hasOwnProperty(name)) {
-            OD(context, name, {
-                get: value,
-                configurable: false,
-                enumerable: true
-            });
+            context[name] = value;
         }
     };
 
-    __required.l = function(mid) {
-        return new Promise(function(resolve, reject){
-            if (pendingLazyLoad.includes(mid)) return;
-            if (installedModules[mid]) {
-                resolve(installedModules[mid]);
-            } else {
-                pendingLazyLoad.push(mid);
-                var scriptElement = loadScript(mid);
-                scriptElement.onreadystatechange = scriptElement.onload = scriptElement.onerror  = function() {
-                    var state = scriptElement.readyState;
-                    if ((!state || /loaded|complete/.test(state))) {
-                        resolve(__required(mid));
-                        pendingLazyLoad.splice(pendingLazyLoad.indexOf(mid), 1);
-                    }
-                    scriptElement.parentNode.removeChild(scriptElement);
-                };
-            }
-        });
-    };
+    __required.l = (mid) => new Promise((resolve, reject) => {
+        if (pendingLazyLoad.includes(mid)) return;
+        if (installedModules[mid]) {
+            resolve(installedModules[mid]);
+        } else {
+            pendingLazyLoad.push(mid);
+            const scriptElement = loadScript(mid);
+            scriptElement.onreadystatechange = scriptElement.onload = scriptElement.onerror  = function() {
+                const state = scriptElement.readyState;
+                if ((!state || /loaded|complete/.test(state))) {
+                    resolve(__required(mid));
+                    pendingLazyLoad.splice(pendingLazyLoad.indexOf(mid), 1);
+                }
+                scriptElement.parentNode.removeChild(scriptElement);
+            };
+        }
+    });
 
     return __required;
 })( /** JELI DEPENDECY HUB **/ <%=main%>, this));

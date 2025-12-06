@@ -31,7 +31,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
             case (ckeyWords.PIPE):
                 _registerOrThrowError('Service', fn, ast.definitions,
                     `Service ${helper.colors.yellow(fn)} is already registered, please rename Class or use a prefix`);
-                    ctorParser(ast.definitions, ast.type);
+                ctorParser(ast.definitions, ast.type);
                 break;
             case (ckeyWords.JMODULE):
                 _registerOrThrowError(ast.type, fn, ast.definitions, `Modules ${helper.colors.yellow(fn)} is already registered.`);
@@ -44,14 +44,14 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
 
     if (compilerError.length) {
         loader.spinner.fail(`Errors found in: ${helper.colors.yellow(filePath)}\n`)
-        helper.console.error(compilerError.join('\n'));
+        throw new Error(compilerError.join('\n'));
     } else {
         outputInstance.annotations.push({
             fn,
             type: ast.type,
             isModule: helper.is(ast.type, 'jModule'),
             annotations
-        })
+        });
     }
 
 
@@ -61,138 +61,97 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
      * @param {*} fnName 
      */
     function validateModule(moduleObj, fnName) {
-        Object.keys(moduleObj).forEach(_validate);
+        const cscripts = [];
+        const validators = {
+            [AnnotationsEnum.SERVICES]: () => {
+                moduleObj.services = moduleObj.services.filter(service => {
+                    const serviceDefinition = componentsResolver.getLocalService(service);
+                    if (helper.typeOf(service, 'object')) {
+                        validateToken(service);
+                        cscripts.unshift(`${service.name}.register(${getTokenValue(service)}, true);`);
+                        return false;
+                    } else if (!serviceDefinition) {
+                        compilerError.push(`service -> ${service} implementation not found.`);
+                        return false;
+                    }
 
-        /**
-         * 
-         * @param {*} type 
-         */
-        function _validate(type) {
-            switch (type.toUpperCase()) {
-                case (AnnotationsEnum.SERVICES):
-                    _validateService();
-                    break;
-                case (AnnotationsEnum.REQUIREDMODULES):
-                    _validateRequiredModules();
-                    break;
-                case (AnnotationsEnum.SELECTORS):
-                    _validateSelectors();
-                    break;
-                case (AnnotationsEnum.EXPORTS):
-                    _validateExports();
-                    break;
-                case (AnnotationsEnum.ROOTELEMENT):
-                    _validateRootElement();
-                    break;
-                default:
-                    loader.spinner.fail(`\nunsupported Module definition<${helper.colors.yellow(type)}> defined in ${helper.colors.yellow(filePath)}`);
-                    helper.abort();
-                    break;
-            }
-        }
+                    if (!serviceDefinition.module) {
+                        serviceDefinition.module = fnName;
+                    }
 
-        /**
-         * Module Service Validator
-         */
-        function _validateService() {
-            moduleObj.services = moduleObj.services.filter(service => {
-                const serviceDefinition = componentsResolver.getLocalService(service);
-                if (helper.typeOf(service, 'object')) {
-                    validateToken(service);
-                    annotations.push(`${service.name}.register(${getTokenValue(service)}, true);`);
-                    return false;
-                } else if (!serviceDefinition) {
-                    compilerError.push(`service -> ${service} implementation not found.`);
-                    return false;
-                }
+                    return true;
+                });
+            },
+            [AnnotationsEnum.REQUIREDMODULES]: () => {
+                moduleObj.requiredModules = moduleObj.requiredModules.map(reqModule => {
+                    if (helper.typeOf(reqModule, 'object')) {
+                        const moduleDef = reqModule;
+                        reqModule = reqModule.namespaces.shift();
+                        cscripts.push(`/** initialize ${reqModule} static call **/ ${reqModule}${moduleDef.namespaces.join('.')}.${moduleDef.fn}.apply(null, ${helper.objectStringToAsIs(moduleDef.args)});`);
+                    }
 
-                if (!serviceDefinition.module) {
-                    serviceDefinition.module = fnName;
-                }
+                    const module = componentsResolver.getExportedModule(reqModule);
+                    if (!module) {
+                        compilerError.push(`required module {${helper.colors.yellow(reqModule)}} -> {${helper.colors.yellow(fnName)}} was not found, please import the module. \n help: "${helper.colors.green("import {" + reqModule + "} from 'REQUIRED_PATH';")}"\n`);
+                    }
 
-                return true;
-            });
-        }
+                    /**
+                     * check for circular requiredModules
+                     */
+                    if (module && module.requiredModules && module.requiredModules.includes(fnName)) {
+                        compilerError.push(`Circular referrence found:  ${helper.colors.yellow(reqModule)} -> ${helper.colors.yellow(fnName)} -> ${helper.colors.yellow(reqModule)}`);
+                    }
 
-        /**
-         * validate requiredModules
-         */
-        function _validateRequiredModules() {
-            moduleObj.requiredModules = moduleObj.requiredModules.map(reqModule => {
-                if (helper.typeOf(reqModule, 'object')) {
-                    const moduleDef = reqModule;
-                    reqModule = reqModule.namespaces.shift();
-                    annotations.push(`/** initialize ${reqModule} static call **/ ${reqModule}${moduleDef.namespaces.join('.')}.${moduleDef.fn}.apply(null, ${helper.objectStringToAsIs(moduleDef.args)});`);
-                }
+                    return reqModule;
+                });
+            },
+            [AnnotationsEnum.SELECTORS]: () => {
+                moduleObj.selectors.forEach(elementFn => {
+                    const element = componentsResolver.getLocalSelector(elementFn);
+                    if (helper.typeOf(elementFn, 'object')) {
+                        if (elementFn.useExisting && elementFn.selector) {
+                            if (!element)
+                                return compilerError.push(`${elementFn.useExisting} is registered in ${fnName} module but implementation does not exists.`);
 
-                const module = componentsResolver.getExportedModule(reqModule);
-                if (!module) {
-                    compilerError.push(`required module {${helper.colors.yellow(reqModule)}} -> {${helper.colors.yellow(fnName)}} was not found, please import the module. \n help: "${helper.colors.green("import {" + reqModule + "} from 'REQUIRED_PATH';")}"\n`);
-                }
+                            // create a new reactive class from build
+                            const newClassName = helper.pascalCase(elementFn.selector);
+                            elementFn.selector = helper.removeDoubleQuote(elementFn.selector);
+                            const newInstance = Object.assign(elementFn, {
+                                module: fnName,
+                                link: element
+                            });
 
-                /**
-                 * check for circular requiredModules
-                 */
-                if (module && module.requiredModules && module.requiredModules.includes(fnName)) {
-                    compilerError.push(`Circular referrence found:  ${helper.colors.yellow(reqModule)} -> ${helper.colors.yellow(fnName)} -> ${helper.colors.yellow(reqModule)}`);
-                }
+                            componentsResolver.addEntry(elementFn.selector.includes('-') ? 'Element' : 'Directive', newClassName, newInstance)
+                            return;
+                        }
 
-                return reqModule;
-            });
-        }
+                        return compilerError.push(`Invalid definition ${JSON.stringify(elementFn)}, missing property "useExisiting|selector"`);
+                    }
 
-        /**
-         * validate selectors
-         */
-        function _validateSelectors() {
-            moduleObj.selectors.forEach(elementFn => {
-                const element = componentsResolver.getLocalSelector(elementFn);
-                if (helper.typeOf(elementFn, 'object')) {
-                    if (elementFn.useExisting && elementFn.selector) {
-                        if (!element)
-                            return compilerError.push(`${elementFn.useExisting} is registered in ${fnName} module but implementation does not exists.`);
-
-                        // create a new reactive class from build
-                        const newClassName = helper.pascalCase(elementFn.selector);
-                        elementFn.selector = helper.removeDoubleQuote(elementFn.selector);
-                        const newInstance = Object.assign(elementFn, {
-                            module: fnName,
-                            link: element
-                        });
-                        
-                        componentsResolver.addEntry(elementFn.selector.includes('-') ? 'Element' : 'Directive', newClassName, newInstance)
+                    if (!element) {
+                        compilerError.push(`${elementFn} is registered in ${fnName} module but implementation does not exists.`);
                         return;
                     }
 
-                    return compilerError.push(`Invalid definition ${JSON.stringify(elementFn)}, missing property "useExisiting|selector"`);
-                }
+                    if (element.module && element.module !== fnName) {
+                        compilerError.push(`${elementFn} is registered to ${element.module} and ${fnName} modules`);
+                    }
 
-                if (!element) {
-                    compilerError.push(`${elementFn} is registered in ${fnName} module but implementation does not exists.`);
-                    return;
-                }
+                    element.module = fnName;
+                });
+            },
+            [AnnotationsEnum.EXPORTS]: () => { },
+            [AnnotationsEnum.ROOTELEMENT]: () => { }
+        };
 
-                if (element.module && element.module !== fnName) {
-                    compilerError.push(`${elementFn} is registered to ${element.module} and ${fnName} modules`);
-                }
+        const notFound = () => {
+            loader.spinner.fail(`\nunsupported Module definition<${helper.colors.yellow(type)}> defined in ${helper.colors.yellow(filePath)}`);
+            helper.abort();
+        };
 
-                element.module = fnName;
-            });
-        }
-
-        /**
-         * validate the rootElement
-         */
-        function _validateRootElement() {
-
-        }
-
-        /**
-         * validate exported elements
-         */
-        function _validateExports() {
-
-        }
+        Object.keys(moduleObj).forEach(type => (validators[type.toUpperCase()] || notFound)(type));
+        // push the scripts
+        annotations.push.apply(annotations, cscripts);
     }
 
     /**
@@ -203,7 +162,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
         if (!componentsResolver.isExportedToken(token.name))
             compilerError.push(`Token<${token.name}> definition not found.`);
         if (token.useClass) {
-            const serviceImpl = componentsResolver.getLocalService(token.useClass);
+            const serviceImpl = componentsResolver.getService(token.useClass);
             if (!serviceImpl) {
                 compilerError.push(`Missing implementation for ${token.useClass} provided in ${token.name}`);
             } else if (serviceImpl.DI) {
@@ -226,7 +185,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
      */
     function _validateDI(deps, tokenName, className, entryClass) {
         if (!deps) return;
-        deps.forEach(di => {
+        for (const di of deps) {
             if (helper.typeOf(di, 'string')) {
                 const service = componentsResolver.getService(di);
                 if (service) {
@@ -242,7 +201,7 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
             } else if (helper.typeOf(di, 'object') && !di.optional) {
                 compilerError.push(`unable to resolve dependency: ${helper.colors.yellow(di.name)} -> ${helper.colors.yellow(fn)}}`);
             }
-        });
+        }
     }
 
     /**
@@ -440,17 +399,17 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                 }
             }
             // parse delegate event
-            if (reg.name.includes('-')){
+            if (reg.name.includes('-')) {
                 reg.name = reg.name.split('-')[0];
                 reg.target = helper.removeSingleQuote(reg.type).split(',').map(str => helper.addSingleQuote(str, false));
                 reg.type = `'event'`;
             }
 
             // attach node selector only when event is attached to directive
-            if (selector){
+            if (selector) {
                 reg.node = helper.addSingleQuote(selector, false);
             }
-            
+
             accum[`'${reg.name}'`] = reg;
             delete reg.name;
             return accum;
@@ -463,6 +422,10 @@ function processAst(ast, filePath, outputInstance, componentsResolver) {
                 list[idx] = `'${arg}'`;
             } else if (Array.isArray(arg)) {
                 parseToString(arg);
+            }  else if (helper.typeOf(arg, 'object')){
+                Object.keys(arg).forEach(c => {
+                    arg[c] = helper.typeOf(arg[c], 'string') ? `'${arg[c]}'` : arg[c];
+                });
             }
         });
     }

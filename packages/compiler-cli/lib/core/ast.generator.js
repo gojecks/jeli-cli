@@ -1,6 +1,6 @@
 const esprima = require('espree');
 const helper = require('@jeli/cli/lib/utils');
-const escodegen = require('escodegen');
+const escodegen = require('./escodegen-patch');
 const comment = require('./comment');
 const expressionList = 'Directive,Element,Service,Provider,Pipe,jModule'.split(',');
 const bootStrapFnName = 'bootStrapApplication';
@@ -45,9 +45,11 @@ function deduceSourceType(source) {
  * 
  * @param {*} source 
  * @param {*} currentProcess 
- * @param {*} isEntry
+ * @param {*} isEntry 
+ * @param {*} buildOptions 
+ * @returns 
  */
-exports.generateAstSource = (source, currentProcess, isEntry) => {
+exports.generateAstSource = (source, currentProcess, isEntry, buildOptions = {ecmaVersion: 2024}) => {
     let ast = null;
     try {
         ast = esprima.parse(source, {
@@ -55,7 +57,7 @@ exports.generateAstSource = (source, currentProcess, isEntry) => {
             range: false,
             loc: false,
             sourceType: deduceSourceType(source),
-            ecmaVersion: 2022
+            ecmaVersion: buildOptions.ecmaVersion
         });
     } catch (e) {
        throw e.message;

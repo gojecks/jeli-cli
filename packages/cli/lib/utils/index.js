@@ -100,6 +100,8 @@ exports.simpleBooleanParser = ($boolValue) => {
  * @param {*} expression 
  */
 exports.simpleArgumentParser = (expression) => {
+    if (!this.typeOf(expression,'string')) return expression;
+    
     const possibleMatcher = this.simpleBooleanParser(expression),
         isNum = Number(expression);
     if (typeof expression === 'number') {

@@ -1,10 +1,10 @@
-module.exports = function(markupLanguage){
-    var tokens = markupLanguage.split(/(@[\w]+\[.*?\])/g);
-    var currentElem = null;
-    var manyNested = [];
-    var astNodes = [];
-    for (var i = 0; i < tokens.length; i++) {
-        var item = tokens[i].trim();
+module.exports = (markupLanguage) => {
+    const tokens = markupLanguage.split(/(@[\w]+\[.*?\])/g);
+    const currentElem = null;
+    const manyNested = [];
+    const astNodes = [];
+    for (let i = 0; i < tokens.length; i++) {
+        const item = tokens[i].trim();
         if (!item || '({'.includes(item)) continue;
         if (item.startsWith('@')) {
             var match = item.match(/@(\w*)+\[(.*?)\]/);

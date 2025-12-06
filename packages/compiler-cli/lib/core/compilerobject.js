@@ -21,7 +21,7 @@ const removeExtPath = p => {
  */
 const generateOutPutFileName = (fileName, filePath, entryFile) => {
     const match = filePath.split(/\//g);
-    const entryPath = entryFile.split(/\//g);
+    const entryPath = entryFile.split(/\//g).filter(i => i.trim() !== '.');
     return fileName.split(/\//g).map(key => key === '*' ? match[entryPath.indexOf(key)] : key).join('/');
 };
 
@@ -102,11 +102,13 @@ async function CompilerObject(options, buildOptions, resolvers) {
      * generate a compilerObject for each file to be output
      */
     if (options.output.files) {
-        for (var fileName in options.output.files) {
+        for (const fileName in options.output.files) {
             const entryFile = options.output.files[fileName];
             if (entryFile.indexOf('*') > -1) {
                 exports.expandFilePath(entryFile, options.sourceRoot)
-                    .forEach(filePath => outputFiles[generateOutPutFileName(fileName, filePath, entryFile)] = new OutPutObject(filePath, options, buildOptions));
+                    .forEach(filePath => {
+                        outputFiles[generateOutPutFileName(fileName, filePath, entryFile)] = new OutPutObject(filePath, options, buildOptions)
+                });
             } else {
                 outputFiles[fileName] = new OutPutObject(entryFile, options, buildOptions);
             }
@@ -115,9 +117,9 @@ async function CompilerObject(options, buildOptions, resolvers) {
         outputFiles[options.output.entryFile] = new OutPutObject(options.output.entryFile, options, buildOptions);
     }
 
-
     // clear output
-    if (fs.existsSync(options.output.folder)) {
+    options.output.folder = options.output.folder || '';
+    if (options.output.folder && fs.existsSync(options.output.folder)) {
         fs.removeSync(options.output.folder);
     }
 

@@ -1,4 +1,4 @@
 <%=header%>
-var __buildOptions = <%=buildOptions%>;
+const __buildOptions = <%=buildOptions%>;
 <%=scriptBody%>
 <%=footer%>

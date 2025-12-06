@@ -9,7 +9,9 @@ const levenAsync = import('leven')
 const localNodeModules = path.join(process.cwd(), 'node_modules/');
 let localVersion =  null;
 try {
-    localVersion = require(`${localNodeModules}/@jeli/cli/package.json`).version
+    if(process.env._.includes('node_modules')){
+        localVersion = require(`${localNodeModules}/@jeli/cli/package.json`).version;
+    }
 } catch(e){ }
 
 const getDepPath = dep  => `${localVersion ? localNodeModules : '' }${dep}`;

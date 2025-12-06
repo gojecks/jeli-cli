@@ -78,7 +78,7 @@ class ComponentsResolver  {
      * @param {*} instance 
      */
     addEntry(type, className, instance) {
-        if  (!this.compilerObject[type].hasOwnProperty(className)) {
+        if  (!this.compilerObject[type][className]) {
             this.compilerObject[type][className] = instance;
             // set the rootModule to bootstrap
             if (type.includes('Module') && !this.compilerObject.isLib && !this.compilerObject.entryModule){
@@ -174,12 +174,9 @@ class ComponentsResolver  {
     addOutPutEntry(filePath, definition){
         if (!this.compilerObject.output.modules[filePath]) {
             setIndex(filePath);
-            this.compilerObject.output.modules[filePath] = definition;
         }
         // delete mode
-        if (!definition){
-            this.compilerObject.output.modules[filePath] = null;
-        }
+        this.compilerObject.output.modules[filePath] = definition || null;
     }
 
     addFileEntry(filePath, definition){
@@ -201,12 +198,17 @@ class ComponentsResolver  {
             // remove all mapped annotations 
             if (obj && obj.annotations) {
                 obj.annotations.forEach(annot => {
+                    const cTypes = {
+                        Pipe: 'Service',
+                        Provider: 'Service'
+                    };
+
                     try {
-                        if (components.includes(annot.type) && this.compilerObject[annot.type])
+                        if (components.includes(annot.type) && this.compilerObject[annot.type]){
                             moduleName = this.compilerObject[annot.type][annot.fn].module;
-                        
-                        // remove annotation name                        
-                        delete this.compilerObject[annot.type][annot.fn];
+                        }
+                        // remove annotation name 
+                        this.compilerObject[(cTypes[annot.type] || annot.type)][annot.fn] = null;
                     } catch(e) {}
                 });
             }

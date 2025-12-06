@@ -16,5 +16,5 @@ module.exports = (parsedHtml) => {
         });
     }
 
-    return `(viewRef) => { 'use strict'; var _GT = (id, mtl) => core.ViewParser.compiler.$(${replaceTemplateMappers(parsedHtml.templatesMapHolder, true)}[id], mtl); return core.ViewParser.compiler.jit(viewRef, ${replaceTemplateMappers(parsedHtml.parsedContent)}, ${replaceTemplateMappers(parsedHtml.vt)}); };`;
+    return `(viewRef) => { 'use strict'; var _GT = (id, mtl) => core.ViewParser.$(${replaceTemplateMappers(parsedHtml.templatesMapHolder, true)}[id], mtl); return core.ViewParser.jit(viewRef, ${replaceTemplateMappers(parsedHtml.parsedContent)}, ${replaceTemplateMappers(parsedHtml.vt)}); };`;
 }

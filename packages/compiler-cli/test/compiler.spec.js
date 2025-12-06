@@ -1,13 +1,11 @@
-const chai = require('chai')
-const expect = chai.expect;
-const compiler = require('../lib')
+const compiler = require('../lib');
 const projectSchema = {
     type: "library",
     sourceRoot: `${__dirname}/components`,
     "output": {
-        "generateMeta": true,
+        "generateMeta": false,
         "patterns": ["MODULE"],
-        "folder": "__TEST__",
+        "folder": null,
         "files": {
             "test": "./public.api.js",
         }

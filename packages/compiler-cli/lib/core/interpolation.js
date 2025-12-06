@@ -65,8 +65,8 @@ exports.getTemplateKeys = (data) => {
  * @param {*} key 
  */
 exports.removeFilters = (key, pipesProvider) => {
-    var filter = { prop: "" };
-    var hasFilter = helper.removeSingleOperand(key, '[|]', '^', 'g').split('^');
+    const filter = { prop: "" };
+    const hasFilter = helper.removeSingleOperand(key, '[|]', '^', 'g').split('^');
     filter.prop = helper.simpleArgumentParser(hasFilter[0].trim());
     if (hasFilter && hasFilter.length > 1) {
         filter.args = [];
@@ -75,7 +75,7 @@ exports.removeFilters = (key, pipesProvider) => {
         //useful to extend filter value
         //@sample : dateTime filter
         var AllFilters = hasFilter.slice(1);
-        for (var i in AllFilters) {
+        for (let i in AllFilters) {
             pipesProvider(AllFilters[i].trim(), filter);
         }
     }
