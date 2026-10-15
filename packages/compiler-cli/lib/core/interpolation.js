@@ -19,7 +19,7 @@ exports.getDelimeter = () => defaultTemplateExp;
  */
 exports.parser = (ast, pipesProvider) => {
     ast = this.getTemplateKeys(ast);
-    var binding = [ast.data];
+    const binding = [ast.data];
 
     if (ast.exprs.length) {
         var once = false;

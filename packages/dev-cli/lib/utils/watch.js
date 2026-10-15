@@ -1,11 +1,16 @@
 const chokidar = require('chokidar');
+const path = require('path');
 module.exports = async(foldersConfig, callback) => {
     /**
      * start watching for file changes
      */
     const watchPaths = ['.'].concat(foldersConfig.resolveAliasPaths);
+    // the project's own dependencies and build/test output never trigger a rebuild; aliased paths
+    // (often a sibling's dist/) are always watched
+    const ownNoise = /(^|[\/\\])(node_modules|dist|coverage|playwright-report|test-results)([\/\\]|$)/;
+    const isAliased = p => foldersConfig.resolveAliasPaths.some(alias => p === alias || p.startsWith(alias + path.sep));
     const watcher = chokidar.watch(watchPaths, {
-        ignored: /(^|[\/\\])\../, // ignore dotfiles
+        ignored: p => /(^|[\/\\])\../.test(p) || (!isAliased(path.resolve(p)) && ownNoise.test(p)),
         persistent: true,
         ignoreInitial: true
     });

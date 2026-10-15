@@ -2,7 +2,7 @@
  * html core parser
  */
 const parser = require('html-dom-parser').default;
-const { parseAst, parseAstJSON } = require('../ast.generator');
+const { parseAst, parseAstJSON, compileTextBindingToFn, compileValueToJs, compileEventBodyToJs } = require('../ast.generator');
 const interpolation = require('../interpolation');
 const helper = require('@jeli/cli/lib/utils');
 const { matchViewQueryFromAstNode } = require('../query_selector');
@@ -95,7 +95,8 @@ class BaseViewParser {
                 ViewParser: '@jeli/core'
             },
             pendingDependencies: false,
-            vt: {} // viewTemplates
+            vt: {}, // viewTemplates
+            compiledFnSources: [] // compiledBindings codegen output, see astTextParser
         };
     }
 
@@ -256,6 +257,25 @@ class BaseViewParser {
                  * pasrse ast
                  */
                 ast[1].forEach(item => item[1].prop = this.expressionAst(item[1].prop, output))
+
+                /**
+                 * compiledBindings: replace the interpreted [placeholder,
+                 * filterModel] pair list with a real compiled function -
+                 * text-node bindings (Phase 1) and, since Phase 2, plain
+                 * attribute values with an embedded ${} placeholder (e.g.
+                 * class="btn-${state}") - both produce this identical
+                 * array shape via astTextParser. Falls back to the
+                 * interpreted shape (untouched ast[1]) for anything
+                 * compileTextBindingToFn declines (filters, unsupported
+                 * expression constructs).
+                 */
+                if (this.componentResolver.compilerObject.buildOptions.compiledBindings) {
+                    const fnSource = compileTextBindingToFn(ast[0], ast[1]);
+                    if (fnSource !== null) {
+                        const idx = output.compiledFnSources.push(fnSource) - 1;
+                        ast[1] = `<%CFN:${idx}%>`;
+                    }
+                }
             }
         }
 
@@ -292,7 +312,10 @@ class BaseViewParser {
             } else
                 ast = parseAst(expression)[0];
         } catch (e) {
-            output.errorLogs.push(helper.colors.white(`${e.message} -> ${expression}`))
+            // espree's SyntaxError carries lineNumber/column but its .message never includes them;
+            // fold it back in so the log points at where in `expression` the bad token is.
+            const loc = e.lineNumber != null ? ` (column ${e.column})` : '';
+            output.errorLogs.push(helper.colors.white(`${e.message}${loc} -> ${expression}`))
         }
 
         return ast;
@@ -310,6 +333,29 @@ class BaseViewParser {
                 return parseAstJSON(`(${astAttr.context})`).expr;
             } else if (astAttr.context == '$this')
                 return true;
+        }
+    }
+
+    /**
+     * compiledBindings: compiles each key of a <j-place>/static
+     * <j-fragment> `$ctx`/`ctx$` object (produced by `generateContext`'s
+     * object-expression branch above - a plain object mapping each key to
+     * an ordinary compact-AST node, identical in shape to everything
+     * `compileValueToJs` already compiles). Skipped entirely for the two
+     * non-object `generateContext` results (`context="$this"` -> `true`,
+     * `context="*"` -> a raw string) - neither is a per-key object, there
+     * is nothing to compile.
+     * @param {*} ctxObj
+     * @param {*} output
+     */
+    static compileContextObject(ctxObj, output) {
+        if (!this.componentResolver.compilerObject.buildOptions.compiledBindings) return;
+        if (!ctxObj || typeof ctxObj !== 'object') return;
+        for (const key in ctxObj) {
+            const compiled = compileValueToJs(ctxObj[key]);
+            if (compiled === null) continue;
+            const idx = output.compiledFnSources.push(`function($ctx, $cmp) { return ${compiled}; }`) - 1;
+            ctxObj[key] = `<%CFN:${idx}%>`;
         }
     }
 
@@ -338,7 +384,7 @@ class BaseViewParser {
             };
 
             if (!resolvedFilters.hasOwnProperty(pipeName)) {
-                const deps = this.componentResolver.getPipe(pipeName);
+                const deps = this.componentResolver?.getPipe(pipeName);
                 if (deps) {
                     resolvedFilters[pipeName] = deps;
                     _pushFilters(deps);
@@ -374,25 +420,17 @@ class BaseViewParser {
             return;
         }
 
-        let props = null;
-        helper.splitAndTrim(expr, ';').forEach(_parseProps);
-        astNode.structuralDirective = {
-            registeredDir,
-            dirName,
-            props
-        };
-
-        function _parseProps(key, idx) {
+        const _parseProps = (key, idx) => {
             if (idx && helper.isContain('=', key)) {
                 const propSplt = helper.splitAndTrim(key, "=");
                 astNode.context = astNode.context || {};
-                astNode.context[propSplt[0]] = BaseViewParser.expressionAst(propSplt[1], output);
+                astNode.context[propSplt[0]] = this.expressionAst(propSplt[1], output);
             } else if (idx && helper.isContain(' as ', key)) {
                 const propSplt = helper.splitAndTrim(key, ' as ');
                 props = (props || {});
-                props[helper.camelCase(`${dirName}-${propSplt[0]}`)] = BaseViewParser.expressionAst(propSplt[1], output);
+                props[helper.camelCase(`${dirName}-${propSplt[0]}`)] = this.expressionAst(propSplt[1], output);
             } else {
-                const ast = BaseViewParser.pipesProvider(key, output);
+                const ast = this.pipesProvider(key, output);
                 props = (props || {});
                 if (helper.typeOf(ast.prop, 'string')) {
                     astStringParser(ast, props);
@@ -400,7 +438,7 @@ class BaseViewParser {
                     props[dirName] = ast;
                 }
             }
-        }
+        };
 
         /**
          * concat syntax to form a variable
@@ -408,26 +446,35 @@ class BaseViewParser {
          * @param {*} ast 
          * @param {*} props 
          */
-        function astStringParser(ast, props) {
+        const astStringParser = (ast, props) => {
             const regExp = /\s+\w+\s/;
-            if (regExp.test(ast.prop)) {
+            // "word in/of items" split is only valid for *for's forIn/forOf syntax
+            if (dirName === 'for' && regExp.test(ast.prop)) {
                 const matched = ast.prop.match(regExp);
                 const checkerSplt = helper.splitAndTrim(ast.prop, matched[0]);
-                const inbuiltMatch = BaseViewParser.execInbuilt(checkerSplt[1])
+                const inbuiltMatch = this.execInbuilt(checkerSplt[1])
                 if (inbuiltMatch) {
                     ast.prop = inbuiltMatch;
                 } else {
-                    ast.prop = BaseViewParser.expressionAst(checkerSplt[1], output);
+                    ast.prop = this.expressionAst(checkerSplt[1], output);
                 }
 
                 props[helper.camelCase(`${dirName}-${matched[0].trim()}`)] = ast;
                 astNode.context = astNode.context || {};
                 astNode.context[checkerSplt[0]] = '$context';
             } else {
-                ast.prop = BaseViewParser.expressionAst(ast.prop, output);
+                ast.prop = this.expressionAst(ast.prop, output);
                 props[dirName] = ast;
             }
-        }
+        };
+
+        let props = null;
+        helper.splitAndTrim(expr, ';').forEach(_parseProps);
+        astNode.structuralDirective = {
+            registeredDir,
+            dirName,
+            props
+        };
     }
     /**
      * 
@@ -530,16 +577,83 @@ class BaseViewParser {
                 // set the item
                 this.setArrayType(astNode, 'events', item);
             } catch (e) {
-                output.errorLogs.push(helper.colors.white(`${e.message} -> ${value}`));
+                const loc = e.lineNumber != null ? ` (column ${e.column})` : '';
+                output.errorLogs.push(helper.colors.white(`${e.message}${loc} -> ${value}`));
             }
         }
     }
 
     /**
-     * 
-     * @param {*} attrName 
-     * @param {*} attrValue 
-     * @param {*} objType 
+     * Collects every `*for`'s local-variable names up astNode's elementParent chain, tagged with exact scope depth. See catalogue [[jeli-cli]] "getScopeNames depth tracking".
+     * @param {*} astNode
+     * @returns {Map<string, number>}
+     */
+    static getScopeNames(astNode) {
+        const scopeNames = new Map();
+        let node = astNode;
+        let depth = 0;
+        while (node) {
+            if (node.context) {
+                for (const key in node.context) {
+                    if (!scopeNames.has(key)) scopeNames.set(key, depth);
+                }
+                depth++;
+            }
+            // j-template content renders in its consumer's scope, unknown roots must resolve at runtime
+            if (node.templateBoundary) {
+                scopeNames.openScope = true;
+                break;
+            }
+            node = node.elementParent;
+        }
+
+        return scopeNames;
+    }
+
+    /**
+     * Compiles each assignment-shaped event on astNode.events into a .compiledFn, all-or-nothing per handler. See catalogue [[jeli-cli]] "Compiled event-handler assignments".
+     * @param {*} astNode
+     * @param {*} output
+     */
+    static compileEventAssignments(astNode, output) {
+        if (!this.componentResolver.compilerObject.buildOptions.compiledBindings) return;
+        if (!astNode.events || !astNode.events.length) return;
+
+        let scopeNames = null;
+        for (const event of astNode.events) {
+            if (event.custom || event.target || event.handler) continue;
+            if (!Array.isArray(event.value) || !event.value.length) continue;
+
+            if (!scopeNames) scopeNames = this.getScopeNames(astNode);
+            const compiled = compileEventBodyToJs(event.value, scopeNames);
+            if (compiled === null) continue;
+
+            const idx = output.compiledFnSources.push(`function($ctx, $cmp, $event) { ${compiled}; }`) - 1;
+            event.compiledFn = `<%CFN:${idx}%>`;
+            delete event.value;
+        }
+    }
+
+    /**
+     * Attaches a compiled fn alongside a filterModel's .once/.type/.suffix, deleting the now-redundant .prop. See catalogue [[jeli-cli]] "Compiled event-handler assignments".
+     * @param {*} filterModel
+     * @param {*} output
+     */
+    static attachCompiledFn(filterModel, output) {
+        if (!this.componentResolver.compilerObject.buildOptions.compiledBindings) return;
+        if (filterModel.fns && filterModel.fns.length) return;
+        const compiled = compileValueToJs(filterModel.prop);
+        if (compiled === null) return;
+        const idx = output.compiledFnSources.push(`function($ctx, $cmp) { return ${compiled}; }`) - 1;
+        filterModel.compiledFn = `<%CFN:${idx}%>`;
+        delete filterModel.prop;
+    }
+
+    /**
+     *
+     * @param {*} attrName
+     * @param {*} attrValue
+     * @param {*} objType
      */
     static setAttributeBinder(attrName, attrValue, astNode, output, once = false) {
         if (interpolation.hasTemplateBinding(attrValue)) {
@@ -557,6 +671,7 @@ class BaseViewParser {
         if (helper.typeOf(filter.prop, 'string')) {
             filter.prop = this.expressionAst(filter.prop, output);
         }
+        this.attachCompiledFn(filter, output);
 
         this.setObjectType(astNode, 'attr$', propName, filter);
     }
@@ -695,6 +810,16 @@ class BaseViewParser {
              * Adding the props Observer instead of adding a checker
              */
             value.prop = this.expressionAst(value.prop, output);
+            /**
+             * compiledBindings: this is the second, independent producer
+             * of the filterModel shape (component/directive property
+             * bindings, e.g. `{prop}="expr"` on a custom element) - only
+             * worth attaching when `binding` is true, since the
+             * non-binding branch immediately collapses `value` down to
+             * just `value.prop` right below, discarding anything else on
+             * the object.
+             */
+            if (binding) this.attachCompiledFn(value, output);
             value = binding ? value : value.prop;
         }
 
@@ -776,6 +901,7 @@ class BaseViewParser {
         const props = Object.keys(astNode.attr || {}).concat(Object.keys(astNode.props || {}));
         if (props.length) {
             props.forEach(prop => {
+                if (prop.startsWith('_jeli-')) return;
                 if (!helper.isContain(prop.split('-')[0], standardAttributes) && (!definition[0].obj.props ||
                     !isPropertyValueMap(prop, definition[0].obj.props) && !_isDirective(prop))) {
                     output.errorLogs.push(`Element <${helper.colors.yellow(astNode.name)}> does not support this property {${helper.colors.yellow(prop)}}`);
@@ -1009,11 +1135,27 @@ class BaseViewParser {
                 attachPlaceToCtor(astNode.attr.selector.replace(/[\[\].#]/g, ''), selectorTypes[firstChar] || 'name');
             } else if (astNode.attr.template || astNode.attr.refId) {
                 attachPlaceToCtor(astNode.attr.template, '#');
+            } else {
+                // no [selector]/[template]/[#refId] given (e.g. bare
+                // <j-place #foo fallback="..."> or <j-place fallback="...">) -
+                // still register the default/named slot, same as the
+                // no-attr branch below, so this place keeps receiving
+                // projected content
+                attachPlaceToCtor(astNode.refId || '@', astNode.refId ? '#' : '@');
+            }
+
+            // fallback references a local <j-template #refId> to render when
+            // no content was projected for this place, resolved at runtime
+            // via _GT (same mechanism as <j-fragment {template}="...">)
+            if (astNode.attr.fallback) {
+                astNode.fallback = astNode.attr.fallback;
+                astNode._GT = TEMPLATE_KEY('GT');
             }
 
             // set the $ctx flag
             // $this refers to the child context instead of parent context
             astNode.$ctx = this.generateContext(astNode.attr);
+            this.compileContextObject(astNode.$ctx, output);
             // remove the element
             delete astNode.attr;
         } else {
@@ -1049,6 +1191,7 @@ class BaseViewParser {
                 }
                 // generate context
                 obj.ctx$ = this.generateContext(astNode.attr);
+                this.compileContextObject(obj.ctx$, output);
                 output.templateOptionsMapper.push(obj);
                 return TEMPLATE_KEY(templateId + propsMapper);
             } else if (astNode.attr$) { // templateBinding found

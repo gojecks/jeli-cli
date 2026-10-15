@@ -3,6 +3,7 @@
     "version": "[VERSION]",
     "description": "[DESCRIPTION]",
     "private": true,
+    "type": "module",
     "scripts": {
         "test": "jeli test",
         "docs": "jeli docs",
@@ -18,7 +19,7 @@
     "devDependencies": {
         "@jeli/dev-cli": "[CLIVERSION]",
         "@jeli/compiler-cli": "[CLIVERSION]",
-        "jest": "^25.4.0",
+        "jest": "^30.0.5",
         "eslint": "^6.8.0",
         "eslint-config-standard": "^14.1.0",
         "eslint-plugin-import": "^2.20.1",

@@ -292,7 +292,7 @@ exports.stringifyContent = (content) => {
 
 exports.abort = _ => {
     console.log(colors.red(_ || '\nPlease fix errors.'));
-    process.exit();
+    process.exit(1);
 };
 
 // commander passes the Command object itself as options,

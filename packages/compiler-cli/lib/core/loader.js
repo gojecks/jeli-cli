@@ -19,7 +19,7 @@ class Loader {
      * 
      * @param {*} filePath 
      */
-    static templateContentLoader = (filePath) => {
+    static templateContentLoader(filePath){
         this.spinner.changeText('Found template: ' + filePath);
         return (this.readFile(filePath) || '').replace(/\n/g, '');
     };
@@ -29,7 +29,7 @@ class Loader {
      * @param {*} tempPath 
      * @param {*} sourceRoot 
      */
-    static getFilePath = (tempPath, sourceRoot) => {
+    static getFilePath(tempPath, sourceRoot){
         tempPath = path.join(sourceRoot, tempPath);
         if (!fs.existsSync(tempPath)) {
             throw new NotFoundException(`unable to find file "${tempPath}"`);
@@ -53,7 +53,7 @@ class Loader {
      * @param {*} buildOptionReplace 
      * @returns 
      */
-    static readFile = (filePath, ignoreCheck = false, saveToCache = false, buildOptionReplacer) => {
+    static readFile(filePath, ignoreCheck = false, saveToCache = false, buildOptionReplacer){
         if (!ignoreCheck && !_fileCache_.has(filePath) && !fs.existsSync(filePath)) {
             throw new NotFoundException(`File '${helper.colors.yellow(filePath)}' does not exists`);
         }
@@ -78,7 +78,7 @@ class Loader {
      * @param {*} files 
      * @param {*} compilerObject 
      */
-    static getGlobFiles = async (filePath) => {
+    static async getGlobFiles(filePath){
         const index = filePath.indexOf('*');
         const cwd = filePath.substring(0, index);
         const files = glob.sync(filePath);
@@ -96,14 +96,14 @@ class Loader {
      * @param {*} dep 
      * @param {*} resolveOptions 
      */
-    static resolveDependency = (dep, resolveOptions) => {
+    static resolveDependency(dep, resolveOptions){
         /**
          * dep is a relative path
          */
         if (helper.is(dep.charAt(0), '.')) {
             return null;
         } else if (resolveOptions.alias) {
-            for (var rPath in resolveOptions.alias) {
+            for (const rPath in resolveOptions.alias) {
                 if (rPath === dep) return _resolveModule(resolveOptions.alias[dep]);
                 else if (dep.startsWith(rPath)) {
                     const depPath = path.join(resolveOptions.alias[rPath], dep.replace(rPath, ''));
@@ -175,7 +175,7 @@ class Loader {
      * @param {*} entry 
      * @param {*} silent 
      */
-    static getPackageJson = (entry, silent) => {
+    static getPackageJson(entry, silent){
         const packagePath = path.join(entry, 'package.json');
         if (!fs.existsSync(packagePath) && !silent) {
             return null;

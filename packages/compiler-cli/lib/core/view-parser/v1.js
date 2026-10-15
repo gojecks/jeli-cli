@@ -1,6 +1,8 @@
 
 const BaseViewParser = require('./base.parser');
 const helper = require('@jeli/cli/lib/utils');
+const { getScopeId } = require('../output-mapper');
+const { transformControlFlowBlocks } = require('./control-flow');
 class ViewParser extends BaseViewParser {
     /**
      * parse ast node received
@@ -22,6 +24,16 @@ class ViewParser extends BaseViewParser {
                 index: idx,
                 isc: this.isComponent(ast.name)
             };
+
+            // temp bookkeeping for getScopeNames' ancestor walk - deleted before return, never serialized
+            newAstNode.elementParent = parent;
+            if (helper.is(ast.name, 'j-template')) newAstNode.templateBoundary = true;
+
+            // stamp scope attribute for CSS encapsulation
+            const scopeId = output.ctor && output.ctor.scopeId;
+            if (scopeId && newAstNode.name !== '#') {
+                this.setObjectType(newAstNode, 'attr', scopeId, true);
+            }
 
             // compile attributes
             if (ast.attribs) {
@@ -49,8 +61,11 @@ class ViewParser extends BaseViewParser {
                 if (newAstNode.isc) this._validateCustomElementAndThrowError(newAstNode, output);
 
                 this.attachViewChildToAst(newAstNode, output);
+                this.compileEventAssignments(newAstNode, output);
                 // use this to skip childern compilation
                 this.compileChildren(ast, newAstNode, ignoreChildCompilation, output);
+                delete newAstNode.elementParent;
+                delete newAstNode.templateBoundary;
 
                 /**
                  * extract component
@@ -71,6 +86,8 @@ class ViewParser extends BaseViewParser {
             }
 
             this.compileChildren(ast, newAstNode, true, output);
+            delete newAstNode.elementParent;
+            delete newAstNode.templateBoundary;
             return newAstNode;
         }
         return null;
@@ -80,7 +97,7 @@ class ViewParser extends BaseViewParser {
         // removed resolved elements from cache if exists
         this.cleanup(ctor.selector, fileChanges);
         const output = this.createOutputContext(componentClassName, ctor);
-        output.parsedContent = this.getAst(htmlContent).map((ast, idx) => {
+        output.parsedContent = this.getAst(transformControlFlowBlocks(htmlContent, output.errorLogs)).map((ast, idx) => {
             try {
                 return this.astParser(output, ast, idx);
             } catch (e) {

@@ -3,13 +3,45 @@ const helper = require('@jeli/cli/lib/utils');
 const fs = require('fs-extra');
 const lodashTemplate = require('lodash.template');
 const uglify = require('uglify-js');
-const { getIndex } = require('./output-mapper');
+const { getIndex, getScopeId } = require('./output-mapper');
 const symbol = "ϕ";
 const cssFileHolder = new Map();
 const autoprefixer = require('autoprefixer')
 const postcss = require('postcss')
 const postcssNested = require('postcss-nested');
 const rules = require('./rules');
+
+// A pseudo-element must terminate a compound selector, so the scope attribute has to be
+// inserted before it rather than appended at the very end (e.g. ".overlay[_jeli-x]:after",
+// not the invalid ".overlay:after[_jeli-x]" which browsers silently drop the whole rule for).
+const TRAILING_PSEUDO_ELEMENT = /(::[a-zA-Z-]+(?:\([^)]*\))?|:(?:before|after|first-line|first-letter))$/i;
+
+function scopePlugin(scopeId) {
+    return {
+        postcssPlugin: 'jeli-scope',
+        OnceExit(root) {
+            root.walkRules(rule => {
+                if (rule.parent.type === 'atrule' && /keyframes/i.test(rule.parent.name)) return;
+                rule.selector = rule.selectors
+                    .map(sel => {
+                        const trimmed = sel.trim();
+                        if (trimmed === ':host') return `[${scopeId}]`;
+                        if (trimmed.includes(':global(')) {
+                            return trimmed.replace(/:global\(([^)]*)\)/g, '$1').trim();
+                        }
+                        const pseudoElementMatch = sel.match(TRAILING_PSEUDO_ELEMENT);
+                        if (pseudoElementMatch) {
+                            const splitIndex = sel.length - pseudoElementMatch[0].length;
+                            return `${sel.slice(0, splitIndex)}[${scopeId}]${sel.slice(splitIndex)}`;
+                        }
+                        return `${sel}[${scopeId}]`;
+                    })
+                    .join(', ');
+            });
+        }
+    };
+}
+scopePlugin.postcss = true;
 
 class OutputGenerator {
     static PATTERN = {
@@ -18,7 +50,7 @@ class OutputGenerator {
         DEFAULT: 'DEFAULT'
     };
 
-    static __outputFiles = { };
+    static __outputFiles = {};
 
     static async writeFile(filePath, data) {
         try {
@@ -79,7 +111,7 @@ class OutputGenerator {
         packageJSON.peerDependencies = packageJSON.peerDependencies || {};
         for (const prop in compilerObject.globalImports) {
             const globImp = compilerObject.globalImports[prop];
-            if (globImp.name){
+            if (globImp.name) {
                 packageJSON.peerDependencies[globImp.name] = this.verifyVersion(globImp.version);
             }
         }
@@ -102,7 +134,7 @@ class OutputGenerator {
         }
 
         await this.copyFiles(compilerObject);
-        compilerObject.buildOptions.hasStyles = await this.writeCss(compilerObject.options, true);
+        compilerObject.buildOptions.hasStyles = await this.writeCss(compilerObject.options, compilerObject.buildOptions.assetURL, true, compilerObject.buildOptions.sass);
         await this.generateBundleData(compilerObject, files);
     }
 
@@ -144,6 +176,7 @@ class OutputGenerator {
     static async outputApplicationFiles(compilerObject, changes) {
         const getBootStrapModule = filePath => {
             for (const imp of compilerObject.files[filePath].imports) {
+                if (!imp.specifiers.length) continue; // side-effect-only import (e.g. webcomponent entry) - nothing to resolve
                 const fn = imp.specifiers[0].local;
                 if (compilerObject.jModule[fn]) {
                     return imp.absolutePath;
@@ -170,6 +203,13 @@ class OutputGenerator {
                 const entry = this.writeGlobalImports(deps.join(''), bstDeps.$, false);
                 const buildArgs = this.getBuildArgs(compilerObject.buildOptions);
                 let script = this.loadTemplate('default', { entry, main, buildArgs });
+
+                const bundleStyles = compilerObject.buildOptions && compilerObject.buildOptions.bundleStyles;
+                if (bundleStyles) {
+                    const cssScript = await this.writeCss(compilerObject.options, compilerObject.buildOptions.assetURL, false, compilerObject.buildOptions.sass, true);
+                    if (cssScript) script = cssScript + '\n' + script;
+                }
+
                 await this.outputJSFiles(fileName, script, isProdBuild);
             } else {
                 const lazyLoadModulePath = compilerObject.files[changesFilePath].lazyLoadModulePath;
@@ -183,11 +223,13 @@ class OutputGenerator {
 
         if (!changes) {
             await this.copyFiles(compilerObject);
-            await this.writeCss(compilerObject.options);
+            if (!(compilerObject.buildOptions && compilerObject.buildOptions.bundleStyles)) {
+                await this.writeCss(compilerObject.options, compilerObject.buildOptions.assetURL, false, compilerObject.buildOptions.sass);
+            }
             if (compilerObject.options.output.view) {
                 this.saveApplicationView(compilerObject);
             }
-            // this.saveCompilerData(compilerObject);
+            await this.saveTestMetaData(compilerObject);
         }
     }
 
@@ -209,15 +251,15 @@ class OutputGenerator {
          * @param {*} allowBuild 
          * @returns 
          */
-        const generateModuleDeps = async(filePath, allowBuild) => {
+        const generateModuleDeps = async (filePath, allowBuild) => {
             const isRequired = (req.type === 'require');
             if (allowBuild && Array.isArray(req.source)) {
                 let defaultModuleImports = {};
                 if (!isRequired) {
                     defaultModuleImports = this.extendImportExport(
-                        filePath, 
-                        compilerObject, 
-                        req.source, 
+                        filePath,
+                        compilerObject,
+                        req.source,
                         (bootStrapModulePath == filePath));
                 } else {
                     req.source.unshift(`module.exports = `);
@@ -245,7 +287,7 @@ class OutputGenerator {
         const viewFilePath = path.join(compilerObject.options.sourceRoot, compilerObject.options.output.view);
         const buildOptions = compilerObject.buildOptions;
         if (fs.existsSync(viewFilePath)) {
-            const files = ['styles.js', compilerObject.entryFile];
+            const files = buildOptions.bundleStyles ? [compilerObject.entryFile] : ['styles.js', compilerObject.entryFile];
             /**
              * rewrite rules for index.html
              * src and href will be rewritten if assetURL is defined
@@ -253,7 +295,12 @@ class OutputGenerator {
             const assetUrl = (buildOptions.assetURL || '');
             let indexContent = rules.rewriteSrcHref(fs.readFileSync(viewFilePath, 'utf8'), assetUrl)
                 .replace(/<\/body>/, _ => {
-                    return files.map(file => `<script src="${assetUrl}${file}" type="text/javascript"></script>`).join('\n') + '\n' + _;
+                    return files.map(file => {
+                        // tagged so the live-reload client can find and re-fetch just this
+                        // script on a style-only change, instead of reloading the page
+                        const marker = file === 'styles.js' ? ' data-jeli-style-loader' : '';
+                        return `<script src="${assetUrl}${file}" type="text/javascript"${marker}></script>`;
+                    }).join('\n') + '\n' + _;
                 });
             indexContent = rules.rewriteBaseHref(indexContent, buildOptions.baseHref || './');
             fs.writeFileSync(`${compilerObject.options.output.folder}${compilerObject.options.output.view}`, indexContent);
@@ -271,7 +318,6 @@ class OutputGenerator {
         let result = await this.parseStyle(config, assetURL);
         if (!result || !(result.substring(1, result.length - 2))) return;
         result = helper.stringifyContent(result);
-
         if (append) {
             append.push(result);
         } else {
@@ -289,10 +335,17 @@ class OutputGenerator {
         const existingContent = cssFileHolder.get(elementFilePath);
         this.pushStyle(existingContent ? existingContent.config : {
             styleUrl: changes.filePath,
-            elementFilePath
+            elementFilePath,
+            sassEnabled: compilerObject.buildOptions.sass
         }, null, compilerObject.buildOptions.assetURL);
 
-        await this.writeCss(compilerObject.options);
+        if (compilerObject.buildOptions && compilerObject.buildOptions.bundleStyles) {
+            // styles live inside main.js for this project - a styles-only change still
+            // needs a full regen, not just a styles.js rewrite
+            return this.outputApplicationFiles(compilerObject, null);
+        }
+
+        await this.writeCss(compilerObject.options, compilerObject.buildOptions.assetURL, false, compilerObject.buildOptions.sass);
     }
 
     /**
@@ -461,6 +514,64 @@ class OutputGenerator {
         compilerObject = null;
     }
 
+    /**
+     * Opt-in (buildOptions.testMeta), application-build-only counterpart to
+     * saveCompilerData: that one dumps the *entire* compilerObject (including every
+     * file's full generated source), which is why it's never called for app builds.
+     * This dumps only what a test harness needs to resolve DI without recompiling:
+     * per source file, the already-parsed `DI` array for each Element/Directive/
+     * Service/Provider/Pipe defined there (annotation.js's real, compiler-verified
+     * parse - not a re-implementation), plus that file's own import table with
+     * `absolutePath` already resolved through options.resolve.alias.
+     *
+     * Scoped to files under sourceRoot - compilerObject.files also holds every
+     * transitively-touched node_modules/dist file (isLib=false walks all of them),
+     * which a test resolver never looks up directly and would just bloat this file.
+     *
+     * @param {*} compilerObject
+     */
+    static async saveTestMetaData(compilerObject) {
+        if (!compilerObject.buildOptions.testMeta) return;
+
+        const REGISTRY_BUCKET = { Element: 'Element', Directive: 'Directive', Service: 'Service', Provider: 'Service', Pipe: 'Service' };
+        const sourceRoot = path.resolve(compilerObject.options.sourceRoot || '');
+        const files = {};
+
+        for (const filePath in compilerObject.files) {
+            if (path.relative(sourceRoot, filePath).startsWith('..')) continue;
+
+            const fileEntry = compilerObject.files[filePath];
+            const moduleEntry = compilerObject.output.modules[filePath];
+            const classes = {};
+
+            if (moduleEntry && moduleEntry.annotations) {
+                for (const entry of moduleEntry.annotations) {
+                    const bucket = REGISTRY_BUCKET[entry.type];
+                    const definition = bucket && compilerObject[bucket][entry.fn];
+                    if (definition) {
+                        classes[entry.fn] = {
+                            type: entry.type,
+                            selector: definition.selector,
+                            DI: definition.DI || []
+                        };
+                    }
+                }
+            }
+
+            files[filePath] = {
+                imports: (fileEntry.imports || []).map(imp => ({
+                    source: imp.source,
+                    absolutePath: imp.absolutePath || null,
+                    specifiers: imp.specifiers
+                })),
+                classes
+            };
+        }
+
+        const metaFilePath = path.join(process.cwd(), 'node_modules', '.jeliCache', 'test', 'test-metadata.json');
+        await this.writeFile(metaFilePath, JSON.stringify({ files }, null, 2));
+    }
+
     static extractSourceCode(compilerObject, isLib) {
         const sourceCode = [];
         if (isLib) {
@@ -590,12 +701,12 @@ class OutputGenerator {
                 } else {
                     defaultModuleImports.$[vArg] = defaultModuleImports.$[vArg] || {};
                     importItem.specifiers.forEach(specifier => {
-                        if (!isExternalModule){
+                        if (!isExternalModule) {
                             const impExpr = !isExternalModule ? specifier.imported : specifier.local;
-                            if (!defaultModuleImports.$[vArg][impExpr]){
+                            if (!defaultModuleImports.$[vArg][impExpr]) {
                                 defaultModuleImports.$[vArg][impExpr] = specifier.imported;
                             }
-                        } else if (!isImported(index, specifier.imported)){
+                        } else if (!isImported(index, specifier.imported)) {
                             output.unshift(`const ${specifier.local} = ${vArg}.${specifier.imported};\n`);
                         }
                     });
@@ -603,11 +714,19 @@ class OutputGenerator {
                     output.unshift(`const ${vArg} = __required(${index});\n`);
                 }
             } else if (compilerObject.files.hasOwnProperty(importItem.absolutePath)) {
-                importItem.specifiers.forEach(specifier => {
-                    if (!isImported(index, specifier.imported)) {
-                        output.unshift(`const ${specifier.local} = __required(${index}, '${specifier.imported || specifier.local}');\n`);
+                if (!importItem.specifiers.length) {
+                    // side-effect-only import (e.g. a standalone asNative entry) - still
+                    // needs to run for its registration side effects, not just sit unused
+                    if (!isImported(index, '*side-effect*')) {
+                        output.unshift(`__required(${index});\n`);
                     }
-                });
+                } else {
+                    importItem.specifiers.forEach(specifier => {
+                        if (!isImported(index, specifier.imported)) {
+                            output.unshift(`const ${specifier.local} = __required(${index}, '${specifier.imported || specifier.local}');\n`);
+                        }
+                    });
+                }
             }
         }
 
@@ -671,7 +790,7 @@ class OutputGenerator {
         if (replacers) {
             const delimeter = delify ? ['%', '%'] : ['', ''];
             for (const ns in replacers) {
-                for(const loc in replacers[ns]){
+                for (const loc in replacers[ns]) {
                     sourceCode = sourceCode.replace(new RegExp(delimeter.join(loc), 'g'), _ => `${ns}.${replacers[ns][loc]}`)
                 }
             }
@@ -747,7 +866,7 @@ class OutputGenerator {
                     if (recur && isLazyLoaded(cItem.absolutePath)) {
                         recurImports(cItem.absolutePath);
                     }
-                }   
+                }
                 // external dependencies that are imported into a lazyLoaded module
                 // but never imported in main module
                 else if (fileDef && fileDef.lazyLoadModulePath && fileDef.isExternalModule) {
@@ -794,7 +913,7 @@ class OutputGenerator {
         for (const item of impExp) {
             const req = compilerObject.output.modules[item.absolutePath];
             if (isNs) {
-                output.push(`${getIndex(item.absolutePath)} : module => {\n${writeSource(req, item)}\n}`);
+                output.push(`${getIndex(item.absolutePath)} : (module, exports) => {\n${writeSource(req, item)}\n}`);
             } else {
                 output.push(req.source.join(''));
             }
@@ -840,72 +959,67 @@ class OutputGenerator {
      * @returns 
      */
     static async parseStyle(config, assetURL) {
-        let style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
-        // array styles
-        if (Array.isArray(style)) style = style.join('\n');
+        const isSassFile = config.styleUrl && /\.(scss|sass)$/i.test(config.styleUrl);
+        let style;
+
+        if (config.sassEnabled && isSassFile) {
+            try {
+                const sass = require('sass');
+                style = sass.compile(config.styleUrl, { style: 'expanded' }).css;
+            } catch (e) {
+                if (e.code === 'MODULE_NOT_FOUND') {
+                    console.log(`styling error: buildOptions.sass is enabled but the "sass" package is not installed. Run "npm install sass" and try again.`);
+                } else {
+                    console.log(`styling error: ${e.message || e} for ${config.styleUrl || 'componentStyle'} in ${helper.colors.yellow(config.elementFilePath)}`);
+                }
+                return "";
+            }
+        } else {
+            style = config.styleUrl ? fs.readFileSync(config.styleUrl, 'utf8') : config.style;
+            // array styles
+            if (Array.isArray(style)) style = style.join('\n');
+        }
 
         if (!style) return undefined;
         try {
-            const result = await postcss([autoprefixer, postcssNested])
-                .process(attachSelector(rules.rewriteBkgUrl(style, assetURL || '')), { from: config.styleUrl, to: config.outFile });
+            const scopeId = config.selector ? getScopeId(config.selector) : null;
+            const plugins = [autoprefixer, postcssNested];
+            if (scopeId) plugins.push(scopePlugin(scopeId));
+            const result = await postcss(plugins)
+                .process(rules.rewriteBkgUrl(style, assetURL || ''), { from: config.styleUrl, to: config.outFile });
             return result.css.toString();
         } catch (e) {
             console.log(`styling error: ${e.message || e} for ${config.styleUrl || 'componentStyle'} in ${helper.colors.yellow(config.elementFilePath)}`);
             return "";
         }
-
-
-        /**
-         * 
-         * @param {*} url 
-         * @param {*} prev 
-         * @param {*} done 
-         */
-        function urlLoader(url, prev, done) {
-            // url is the path in import as is, which LibSass encountered.
-            // prev is the previously resolved path.
-            // done is an optional callback, either consume it or return value synchronously.
-            // this.options contains this options hash
-            const filePath = path.resolve(prev, '..', path.dirname(config.styleUrl), url);
-            let content = '';
-            try {
-                content = fs.readFileSync(filePath, 'utf8');
-            } catch (e) {
-                helper.console.error(`unable to read file ${helper.colors.yellow(filePath)} imported in ${helper.colors.yellow(config.styleUrl)} `);
-            }
-
-            return ({
-                contents: attachSelector(content)
-            });
-        }
-
-        function attachSelector(result) {
-            return (result ? (config.selector ? `${config.selector}{${result}}` : result) : undefined);
-        }
     }
 
     /**
-     * 
-     * @param {*} options 
+     *
+     * @param {*} options
+     * @param {*} assetURL
      */
-    static async writeCss(options, isLib = false) {
+    static async writeCss(options, assetURL, isLib = false, sassEnabled = false, bundleStyles = false) {
         let styles = [];
         if (options.output.styles) {
             for (const style of options.output.styles) {
-                await this.pushStyle({ styleUrl: style }, styles, options.assetURL);
+                await this.pushStyle({ styleUrl: style, sassEnabled }, styles, assetURL);
             }
         }
 
         cssFileHolder.forEach(css => { if (css.result) styles.push(css.result); });
         let outputFilePath = `${options.output.folder}/styles.js`;
         if (!isLib) {
-            styles = this.loadTemplate('css', { styles });
+            styles = this.loadTemplate('css', { styles, appId: JSON.stringify(options.sourceRoot || 'app') });
         } else {
             outputFilePath = `${options.output.folder}/bundles/styles.css`;
-            styles = styles.map(c => c.substring(1, c.length - 1)).join('');
+            styles = styles.map(c => c.substring(1, c.length - 1).replace(/\\'/g, "'").replace(/\\\\/g, '\\')).join('');
         }
 
         if (styles.length) {
+            // bundleStyles: a standalone single-file build (e.g. an embeddable webcomponent)
+            // folds this straight into main.js instead of writing it as its own file
+            if (bundleStyles) return styles;
             await this.writeFile(outputFilePath, styles);
             styles = '';
             return true;

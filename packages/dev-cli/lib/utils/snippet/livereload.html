@@ -39,6 +39,9 @@
             case ('RELOAD'):
               window.location.reload();
               break;
+            case ('STYLE'):
+              reloadStyles();
+              break;
             case ('COMPILING'):
               console.log('jws -> compiling...');
               break;
@@ -47,6 +50,24 @@
               break;
           }
         };
+      }
+
+      function reloadStyles() {
+        var current = document.querySelector('script[data-jeli-style-loader]');
+        if (!current) {
+          // no tagged styles entry point to swap in place, fall back to a full reload
+          window.location.reload();
+          return;
+        }
+
+        var src = current.getAttribute('src').split('?')[0];
+        var script = document.createElement('script');
+        script.src = src + '?t=' + Date.now();
+        script.onload = script.onerror = function() {
+          script.parentNode.removeChild(script);
+        };
+        document.body.appendChild(script);
+        console.log('jws -> styles updated.');
       }
 
       console.log('Live reload enabled.');

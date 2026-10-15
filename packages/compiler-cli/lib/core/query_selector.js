@@ -106,7 +106,8 @@ exports.getBySelector = (compilerObject, selector, type) => {
  * @param {?} element 
  */
 exports.CoreQuerySelector = (compilerObject, type, selector, componentName, element) => {
-    const startModule = compilerObject['Element'][componentName].module;
+    const elementCtor = compilerObject['Element'][componentName];
+    const startModule = elementCtor.module;
     const isElementScan = type === 'Element';
     const found = [];
     const isResolvedModule = [];
@@ -153,8 +154,9 @@ exports.CoreQuerySelector = (compilerObject, type, selector, componentName, elem
 
     search(compilerObject, startModule, true);
     if (isElementScan && found.length) return found;
-    // find in requiredModules
-    const parentModule = compilerObject.jModule[startModule];
+    // find in requiredModules - standAlone elements have no enclosing jModule, so fall
+    // back to their own declared requiredModules
+    const parentModule = compilerObject.jModule[startModule] || (elementCtor.standAlone ? elementCtor : null);
     if (parentModule?.requiredModules) {
         findInRequiredModules(parentModule.requiredModules);
     }

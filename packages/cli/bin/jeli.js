@@ -127,6 +127,52 @@ program
     })
 
 program
+    .command('test [entry]')
+    .description('run tests for a project defined in jeli.json configuration')
+    .option('-f, --cwd <workspace>', 'Change current working directory')
+    .option('--configuration <configiration>', 'choose configuration to run tests with')
+    .action((entry, args) => {
+        useLocalDep('@jeli/dev-cli', 'test').test(entry, {
+            cwd: args.cwd,
+            configuration: args.configuration,
+            // testMeta: dumps node_modules/.jeliCache/test/test-metadata.json (per-file
+            // DI arrays + resolved import paths) for test harnesses to read instead of
+            // re-parsing source - see OutputGenerator.saveTestMetaData. Only `jeli test`
+            // sets this; `jeli build`/`jeli serve` never pay for it.
+            buildOptions: { cwd: args.cwd, testMeta: true },
+            compilerPath: getDepPath('@jeli/compiler-cli'),
+            args: minimist(process.argv.slice(3))._.slice(1)
+        })
+    })
+
+program
+    .command('docs [entry]')
+    .description('generate documentation for a project defined in jeli.json configuration')
+    .option('-f, --cwd <workspace>', 'Change current working directory')
+    .option('--configuration <configiration>', 'choose configuration to generate docs with')
+    .action((entry, args) => {
+        useLocalDep('@jeli/dev-cli', 'docs').docs(entry, {
+            cwd: args.cwd,
+            configuration: args.configuration,
+            buildOptions: {}
+        })
+    })
+
+program
+    .command('update [packages...]')
+    .description('check npm for newer versions of @jeli/* packages (or specific ones) and update package.json')
+    .option('--all', 'check all caret-range dependencies, not just @jeli/*')
+    .option('--dry', 'show available updates without writing changes')
+    .option('-y, --yes', 'skip the confirmation prompt')
+    .action((packages, args) => {
+        useLocalDep('@jeli/cli/lib/update', 'update')(packages, {
+            all: !!args.all,
+            dry: !!args.dry,
+            yes: !!args.yes
+        })
+    })
+
+program
     .command('info')
     .description('print debugging information about your environment')
     .action(_ => {
@@ -146,6 +192,7 @@ program
     .command('new <type> <path-name>')
     .option('-p, --project <project-name>', 'Specify project name if multiple exists in workspace. (default: defaultProject)')
     .option('-c, --components <components>', 'Specify list of components to create. e.g [mers] = module,element,router,service')
+    .option('-T, --skip-tests', 'Do not generate a companion .spec.js file')
     .description('generate a new (Element|Directive|Service|Module). Enter type c to generate multiple components')
     .action((type, pathName, cmd) => {
         useLocalDep('@jeli/cli/lib/generator', 'new')(type.toLowerCase(), pathName, cmd)

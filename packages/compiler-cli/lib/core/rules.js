@@ -34,7 +34,11 @@ class Rules {
     }
 
     static rewriteBkgUrl = function(content, hostUrl) {
-        return content.replace(/url\(['"](.*?)['"]\)/g, (a, b) => `url('${this.rewriteUrl(b, hostUrl)}')`);
+        return content.replace(/url\((['"])(.*?)\1\)/g, (match, quote, value) => {
+            const rewritten = this.rewriteUrl(value, hostUrl);
+            const outQuote = rewritten.includes("'") ? '"' : "'";
+            return `url(${outQuote}${rewritten}${outQuote})`;
+        });
     }
 }
 

@@ -204,7 +204,8 @@ exports.resolveMetaData = async(deps, importItem) => {
                 imports: [],
                 exports: []
             });
-            generateAstSource(fs.readFileSync(deps.source, 'utf8'), _metaDataCache[importItem.source]);
+            const result = generateAstSource(fs.readFileSync(deps.source, 'utf8'), _metaDataCache[importItem.source]);
+            _metaDataCache[importItem.source].sourceType = result.type;
         }
     }
 };

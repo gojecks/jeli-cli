@@ -56,9 +56,12 @@ exports.attachListeners = (message, callback) => {
         });
     }
 
+    let exiting = false;
     const done = function() {
+        if (exiting) return;
+        exiting = true;
         callback();
-        process.exit(' ');
+        process.exit(0);
     };
 
     process.on('SIGINT', done);

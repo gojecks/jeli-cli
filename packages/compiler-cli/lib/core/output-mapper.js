@@ -28,8 +28,14 @@ exports.setIndex = name => {
 
 exports.getTemplateIndex = (key, readOnly=false) => {
     if(!templateCacheIndex[key] && !readOnly){
-        templateCacheIndex[key] = hasCode(key); 
+        templateCacheIndex[key] = hasCode(key);
     }
 
     return templateCacheIndex[key];
 }
+
+exports.getScopeId = selector => {
+    let h = 5381;
+    for (let i = 0; i < selector.length; i++) h = (h * 33) ^ selector.charCodeAt(i);
+    return `_jeli-${(h >>> 0).toString(36)}`;
+};

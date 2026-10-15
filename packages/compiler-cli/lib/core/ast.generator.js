@@ -60,7 +60,13 @@ exports.generateAstSource = (source, currentProcess, isEntry, buildOptions = {ec
             ecmaVersion: buildOptions.ecmaVersion
         });
     } catch (e) {
-       throw e.message;
+       // espree's SyntaxError carries lineNumber/column but its .message never includes
+       // them - re-throwing just e.message (a plain string, not even an Error) discarded
+       // that location entirely, so every parse failure surfaced with no way to find the
+       // offending line. Fold it back into the message so it survives the err.message-only
+       // logging further up the compiler's error-handling chain.
+       const loc = e.lineNumber != null ? ` (line ${e.lineNumber}${e.column != null ? ', column ' + e.column : ''})` : '';
+       throw new Error(`${e.message}${loc}`);
     }
 
     const sourceOutlet = {
@@ -384,8 +390,16 @@ function getNameSpaceFromAst(ast, list, addQuote) {
             list.push(getValueFromAst(ast.object, addQuote));
         } else if (ast.object.object) {
             getNameSpaceFromAst(ast.object, list, addQuote);
-        } else {
+        } else if (helper.is(ast.object.type, ASTIdentifier) || helper.is(ast.object.type, ASTExpression.THIS)) {
             list.push(helper.is(ast.object.type, ASTExpression.THIS) ? '$this' : ast.object.name);
+        } else {
+            /**
+             * any other expression type (logical, binary, conditional, etc.)
+             * as a namespace root - delegate to getValueFromAst the same way
+             * the CallExpression case above already does, instead of
+             * assuming a plain identifier and reading a nonexistent `.name`
+             */
+            list.push(getValueFromAst(ast.object, addQuote));
         }
     } else {
         list.push(ast.name || ast.value);
@@ -422,9 +436,213 @@ function generateProperties(properties, scriptMode, addQuote = false, asIs) {
 }
 
 /**
- * 
- * @param {*} expression 
- * @param {*} addQuote 
+ * Compiles a compact-AST expression node into a JS source-text expression, mirroring the interpreter's dispatch.
+ * Returns null for an intentionally-uncompiled construct (see catalogue [[jeli-cli]] "Compiled event-handler assignments").
+ * `allowEvent` makes "$event" resolve to the real event param, recursively - deliberate divergence from the interpreter, see catalogue "$event in compileValueToJs".
+ * @param {*} node
+ * @param {boolean} [allowEvent]
+ * @returns {string|null}
+ */
+exports.compileValueToJs = function compileValueToJs(node, allowEvent) {
+    if (node === null || node === undefined) return 'null';
+
+    const nodeType = typeof node;
+    if (nodeType === 'boolean' || nodeType === 'number') return JSON.stringify(node);
+    if (nodeType === 'string') {
+        if (allowEvent && node === '$event') return '$event';
+        // matches resolveValueFromContext's literal-color heuristic
+        if (/(#|rgb)/.test(node)) return JSON.stringify(node);
+        if (node === '$this') return '$cmp';
+        return `core.resolveIdentifier(${JSON.stringify(node)}, $ctx, $cmp)`;
+    }
+
+    if (Array.isArray(node)) {
+        if (!node.length) return 'null';
+        const rootIsEvent = allowEvent && node[0] === '$event';
+        let expr = rootIsEvent ? '$event' : compileValueToJs(node[0], allowEvent);
+        if (expr === null) return null;
+        for (let i = 1; i < node.length; i++) {
+            const segment = node[i];
+            if (Array.isArray(segment)) {
+                // a computed segment (e.g. `[key]` in $event[key]) is just a key expression, never allowEvent itself
+                const computed = compileValueToJs(segment);
+                if (computed === null) return null;
+                expr = `${expr}?.[${computed}]`;
+            } else {
+                expr = `${expr}?.[${JSON.stringify(segment)}]`;
+            }
+        }
+        return expr;
+    }
+
+    if (nodeType !== 'object') return null;
+
+    switch (node.type) {
+        case 'raw':
+            return JSON.stringify(node.value);
+        case 'ite': {
+            const test = compileValueToJs(node.test, allowEvent);
+            const cons = compileValueToJs(node.cons, allowEvent);
+            const alt = compileValueToJs(node.alt, allowEvent);
+            if (test === null || cons === null || alt === null) return null;
+            return `(${test} ? ${cons} : ${alt})`;
+        }
+        case 'bin': {
+            const left = compileValueToJs(node.left, allowEvent);
+            const right = compileValueToJs(node.right, allowEvent);
+            if (left === null || right === null) return null;
+            return `(${left} ${node.ops} ${right})`;
+        }
+        case 'una': {
+            const arg = compileValueToJs(node.args, allowEvent);
+            if (arg === null) return null;
+            return `(${node.ops}${arg})`;
+        }
+        case 'obj': {
+            const keys = Object.keys(node.expr);
+            const parts = [];
+            for (const key of keys) {
+                const value = compileValueToJs(node.expr[key], allowEvent);
+                if (value === null) return null;
+                parts.push(`${JSON.stringify(key)}: ${value}`);
+            }
+            return `({${parts.join(', ')}})`;
+        }
+        case 'call': {
+            const args = [];
+            for (const argNode of (node.args || [])) {
+                // a call's own args always get allowEvent, matching generateArguments applied uniformly to any call's args
+                const compiled = compileValueToJs(argNode, true);
+                if (compiled === null) return null;
+                args.push(compiled);
+            }
+            if (node.namespaces && node.namespaces.length) {
+                // a computed namespace segment (a[dynamicKey].fn()) is intentionally not compiled - resolveNamespacedCall needs plain strings
+                if (node.namespaces.some(segment => typeof segment !== 'string')) return null;
+
+                if (allowEvent && node.namespaces[0] === '$event') {
+                    // $event.stopPropagation()-style call - resolves against the real event only, see catalogue [[jeli-cli]] "$event in compileValueToJs"
+                    const remaining = JSON.stringify(node.namespaces.slice(1));
+                    return `core.resolveEventNamespacedCall(${remaining}, ${JSON.stringify(node.fn)}, [${args.join(', ')}], $event)`;
+                }
+
+                return `core.resolveNamespacedCall(${JSON.stringify(node.namespaces)}, ${JSON.stringify(node.fn)}, [${args.join(', ')}], $ctx, $cmp)`;
+            }
+
+            return `core.resolveCall(${JSON.stringify(node.fn)}, [${args.join(', ')}], $ctx, $cmp)`;
+        }
+        default:
+            return null;
+    }
+};
+
+/**
+ * Compiles an 'asg' node into a write to a statically-resolved target - $ctx with `scopeNames.get(root)` SCOPE_PARENT hops, or $cmp.
+ * See catalogue [[jeli-cli]] "getScopeNames depth tracking" for why depth (not just membership) matters.
+ * @param {*} node
+ * @param {Map<string, number>} scopeNames
+ * @returns {string|null}
+ */
+exports.compileAssignmentToJs = function compileAssignmentToJs(node, scopeNames) {
+    if (!node || node.type !== 'asg') return null;
+
+    const rightExpr = exports.compileValueToJs(node.right, true);
+    if (rightExpr === null) return null;
+
+    const pathSegments = Array.isArray(node.left) ? node.left : String(node.left).split('.');
+    if (!pathSegments.length || pathSegments.some(segment => typeof segment !== 'string')) return null;
+
+    const depth = scopeNames && scopeNames.get(pathSegments[0]);
+    if (typeof depth !== 'number' && scopeNames && scopeNames.openScope) return null;
+    const target = (typeof depth === 'number')
+        ? '$ctx' + '[core.SCOPE_PARENT]'.repeat(depth)
+        : '$cmp';
+    const accessPath = pathSegments.map(segment => `[${JSON.stringify(segment)}]`).join('');
+    return `(${target}${accessPath} = ${rightExpr})`;
+};
+
+/**
+ * Compiles a full event handler body (one compact-AST node per top-level statement) into a single JS statement sequence, joined by "; ". All-or-nothing: any uncompilable statement returns null.
+ * @param {Array} statements
+ * @param {Map<string, number>} scopeNames
+ * @returns {string|null}
+ */
+exports.compileEventBodyToJs = function compileEventBodyToJs(statements, scopeNames) {
+    if (!Array.isArray(statements) || !statements.length) return null;
+
+    const compiledStatements = [];
+    for (const statement of statements) {
+        const compiled = statement && statement.type === 'asg'
+            ? exports.compileAssignmentToJs(statement, scopeNames)
+            : exports.compileValueToJs(statement, true);
+        if (compiled === null) return null;
+        compiledStatements.push(compiled);
+    }
+
+    return compiledStatements.join('; ');
+};
+
+/**
+ * Escapes template-literal-sensitive characters in a literal (non-binding)
+ * text segment so it can be embedded inside a generated JS template
+ * literal.
+ * @param {string} segment
+ */
+function escapeTemplateLiteralSegment(segment) {
+    return segment.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+}
+
+/**
+ * Compiles a text-node interpolation binding - the `[dataStr, exprs,
+ * onceFlag]` tuple `interpolation.js:parser` produces (`dataStr` contains
+ * positional `${N}` placeholders, `exprs` is `[[placeholderToken,
+ * filterModel], ...]`) - into the source text of a single JS function
+ * `function($ctx, $cmp) { ... }` that returns the fully-interpolated
+ * string directly, using a real JS template literal instead of the
+ * interpreter's runtime `.replace()` loop.
+ *
+ * Returns `null` (fall back to the interpreted path for this specific
+ * binding) when any expression uses a filter/pipe or a construct
+ * `compileValueToJs` doesn't compile - both are deliberately out of scope
+ * for this phase, not silent failures.
+ * @param {string} dataStr
+ * @param {Array} exprs
+ * @returns {string|null}
+ */
+exports.compileTextBindingToFn = function compileTextBindingToFn(dataStr, exprs) {
+    const compiledParts = [];
+    for (const [token, filterModel] of exprs) {
+        if (filterModel.fns && filterModel.fns.length) return null;
+        const compiled = exports.compileValueToJs(filterModel.prop);
+        if (compiled === null) return null;
+        compiledParts.push({ token, expr: compiled });
+    }
+
+    let remaining = dataStr;
+    const literalSegments = [];
+    for (const part of compiledParts) {
+        const idx = remaining.indexOf(part.token);
+        if (idx === -1) return null;
+        literalSegments.push(remaining.slice(0, idx));
+        remaining = remaining.slice(idx + part.token.length);
+    }
+    literalSegments.push(remaining);
+
+    let template = escapeTemplateLiteralSegment(literalSegments[0]);
+    compiledParts.forEach((part, i) => {
+        template += '${' + part.expr + '}' + escapeTemplateLiteralSegment(literalSegments[i + 1]);
+    });
+
+    // matches compileTemplate's [null, undefined, 'null'].includes(value) => ''
+    // fallback for the case where the whole binding is a single expression
+    // that resolved to null/undefined
+    return `function($ctx, $cmp) { var $v = \`${template}\`; return ($v === 'null' || $v === 'undefined') ? '' : $v; }`;
+};
+
+/**
+ *
+ * @param {*} expression
+ * @param {*} addQuote
  */
 exports.parseAst = (expression, addQuote) => {
     return esprima.parse(expression).body.map(statement => getValueFromAst(statement.expression, addQuote));

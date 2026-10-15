@@ -70,7 +70,7 @@ exports.projectPrompt = async(jeliWorkSpace, name, targetDir, projectExists, ava
     const projectData = await this.answers(projectJsonPrompt, { name, targetDir, availablePkgMgr, dirExist, projectExists, jeliWorkSpace });
     projectData.year = new Date().getFullYear();
     projectData.selector = `${projectData.prefix}-${projectData.name}`;
-    projectData.jeliviewentry = `<${projectData.name}></${projectData.name}>`;
+    projectData.jeliviewentry = `<${projectData.selector}></${projectData.selector}>`;
     projectData.sourceroot = projectData.sourceroot || name;
     projectData.version = projectData.version || '1.0.0';
 

@@ -2,7 +2,7 @@
     "type":"element",
     "values": {
         "scriptcontent": "this.appName = '[name]';",
-        "selector": "[name]",
+        "selector": "[selector]",
         "styling": "[style]",
         "viewContent": "<h1>Welcome ${appName},</h1>\n<h2>Application works!!</h2>"
     }

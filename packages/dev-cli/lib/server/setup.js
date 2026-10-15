@@ -4,46 +4,60 @@ const httpProxy = require('http-proxy');
 const path = require('path');
 const fs = require('fs-extra');
 
-
-function getCaller() {
-    try {
-        var stack = new Error().stack;
-        var stackLines = stack.split('\n');
-        var callerStack = stackLines[3];
-        return callerStack.match(/at (.+) \(/)[1];
-    } catch (error) {
-        return '';
-    }
+// Windows + ecstatic path workaround: ecstatic's decodePathname uses path.normalize
+// which returns backslashes on Windows, causing 404s. Patch it to forward-slashes only
+// for that specific call site.
+if (process.platform === 'win32') {
+    // captures a stack trace per call, so it must not run (process-wide) where it isn't needed
+    var _pathNormalize = path.normalize;
+    path.normalize = function(p) {
+        var result = _pathNormalize(p);
+        try {
+            var stack = new Error().stack.split('\n')[3] || '';
+            if (stack.match(/at (.+) \(/)?.[1] === 'decodePathname') {
+                result = result.replace(/\\/g, '/');
+            }
+        } catch (_) {}
+        return result;
+    };
 }
 
-var _pathNormalize = path.normalize;
-path.normalize = function(p) {
-    var caller = getCaller();
-    var result = _pathNormalize(p);
-    // https://github.com/jfhbrook/node-ecstatic/blob/master/lib/ecstatic.js#L20
-    if (caller === 'decodePathname') {
-        result = result.replace(/\\/g, '/');
-    }
-    return result;
-};
-/**
- * 
- * @param {*} options 
- * @param {*} apps 
- */
-function setupValidations(options, apps) {
+function makeDebugLogger(options) {
+    return (req, res, error) => {
+        var date = options.utc ? new Date().toUTCString() : new Date();
+        var ip = options['log-ip'] ? req.headers['x-forwarded-for'] || '' + req.connection.remoteAddress : '';
+        if (error) {
+            jeliUtils.console.write(
+                '[%s] %s "%s %s" Error (%s): "%s"',
+                date, ip, jeliUtils.colors.red(req.method), jeliUtils.colors.red(req.url),
+                jeliUtils.colors.red(error.status.toString()), jeliUtils.colors.red(error.message)
+            );
+        } else {
+            jeliUtils.console.write(
+                '[%s] %s "%s %s" "%s"',
+                date, ip, jeliUtils.colors.cyan(req.method), jeliUtils.colors.cyan(req.url),
+                req.headers['user-agent']
+            );
+        }
+    };
+}
+
+function setupSecurityHeaders(app) {
+    app.use((req, res, next) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+        res.setHeader('X-XSS-Protection', '0'); // disabled - modern browsers ignore it; CSP is the replacement
+        next();
+    });
+}
+
+function setupValidations(options, app) {
     const secureCompare = require('secure-compare');
     const auth = require('basic-auth');
     if (options.username || options.password) {
-        apps.push((req, res, next) => {
+        app.use((req, res, next) => {
             var credentials = auth(req);
-
-            // We perform these outside the if to avoid short-circuiting and giving
-            // an attacker knowledge of whether the username is correct via a timing
-            // attack.
             if (credentials) {
-                // if credentials is defined, name and pass are guaranteed to be string
-                // type
                 var usernameEqual = secureCompare(options.username.toString(), credentials.name);
                 var passwordEqual = secureCompare(options.password.toString(), credentials.pass);
                 if (usernameEqual && passwordEqual) {
@@ -58,14 +72,10 @@ function setupValidations(options, apps) {
     }
 }
 
-/**
- * 
- * @param {*} options 
- * @param {*} app 
- */
 function setupCors(options, app) {
     const corser = require('corser');
     if (options.cors) {
+        options.headers = options.headers || {};
         options.headers['Access-Control-Allow-Origin'] = '*';
         options.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range';
         if (options.corsHeaders) {
@@ -78,11 +88,6 @@ function setupCors(options, app) {
     }
 }
 
-/**
- * 
- * @param {*} options 
- * @param {*} app 
- */
 function setupRobots(options, app) {
     if (options.robots) {
         app.use((req, res, next) => {
@@ -100,19 +105,14 @@ function setupRobots(options, app) {
     }
 }
 
-/**
- * 
- * @param {*} options 
- * @param {*} app 
- */
 function setupLogger(options, app) {
     if (options.debugger) {
+        const debugLogger = makeDebugLogger(options);
         app.use((req, res, next) => {
             debugLogger(req, res);
             next();
         });
-
-        // attach logger
+        // expose on options so setupProxy can reuse it
         options.log = debugLogger;
     }
 }
@@ -135,21 +135,21 @@ function setupStatic(options, app) {
         handleError: !jeliUtils.typeOf(options.proxy, 'string')
     });
 
-    app.use((req, res) => {
+    app.use((req, res, next) => {
         res.setHeader('x-powered-by', 'jeli');
         const pathReq = req.url.split('?')[0];
-        const isContentRequest = /(\w+\.\w+)/.test(pathReq)
+        const isContentRequest = /(\w+\.\w+)/.test(pathReq);
         if (options.entryFile && !isContentRequest) {
             const filePath = path.join(options.root, options.entryFile);
             if (fs.existsSync(filePath)) {
                 let content = fs.readFileSync(filePath, 'utf8');
                 if (options.enableSocket) {
                     content = content.replace(/<\/head>/, _ => {
-                        return `${fs.readFileSync(path.join(__dirname, "../utils/snippet/livereload.html"), "utf8")}${_}`;
+                        return `${fs.readFileSync(path.join(__dirname, '../utils/snippet/livereload.html'), 'utf8')}${_}`;
                     });
                 }
 
-                res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8' })
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8' });
                 return res.end(content);
             }
         }
@@ -169,60 +169,39 @@ function setupProxy(options, app) {
             proxy.web(req, res, {
                 target: options.proxy,
                 changeOrigin: true
-            }, function(err, req, res, target) {
-                if (options.debugger) {
-                    debugLogger(req, res, {
+            }, function(err, req, res) {
+                if (options.log) {
+                    options.log(req, res, {
                         message: err.message,
                         status: res.statusCode
                     });
                 }
-
                 next();
             });
         });
     }
 }
 
-
 function setupSpa(options, app) {
     if (options.spa) {
-        /**
-         * set the hash in response header
-         */
         app.use((req, res, next) => {
-            if (!jeliUtils.isContain(req.method, ["GET", "HEAD"]) || jeliUtils.is(req.url, '/')) {
+            // only intercept GET/HEAD for non-root paths that look like SPA routes (no file extension)
+            if (!jeliUtils.isContain(req.method, ['GET', 'HEAD']) || jeliUtils.is(req.url, '/')) {
                 return next();
             }
-
-            var route = req.url;
+            const pathReq = req.url.split('?')[0];
+            if (/\.\w+$/.test(pathReq)) {
+                return next(); // has a file extension - let ecstatic handle it
+            }
+            // rewrite to root so ecstatic serves index.html; client-side router takes over
             req.url = '/';
-            res.statusCode = 302;
-            res.setHeader('Location', `${req.url}${route}`);
-            res.end();
+            return next();
         });
     }
 }
 
-const debugLogger = (req, res, error) => {
-    var date = options.utc ? new Date().toUTCString() : new Date();
-    var ip = options['log-ip'] ? req.headers['x-forwarded-for'] || '' + req.connection.remoteAddress : '';
-    if (error) {
-        jeliUtils.console.write(
-            '[%s] %s "%s %s" Error (%s): "%s"',
-            date, ip, jeliUtils.colors.red(req.method), jeliUtils.colors.red(req.url),
-            jeliUtils.colors.red(error.status.toString()), jeliUtils.colors.red(error.message)
-        );
-    } else {
-        jeliUtils.console.write(
-            '[%s] %s "%s %s" "%s"',
-            date, ip, jeliUtils.colors.cyan(req.method), jeliUtils.colors.cyan(req.url),
-            req.headers['user-agent']
-        );
-    }
-};
-
-
 module.exports = (options, app) => {
+    setupSecurityHeaders(app);
     setupSpa(options, app);
     setupLogger(options, app);
     setupValidations(options, app);

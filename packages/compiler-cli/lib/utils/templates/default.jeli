@@ -11,20 +11,30 @@
     buildArgs = <%=buildArgs%>,
     installedModules = {buildArgs},
     pendingLazyLoad = [];
-    OD(self, dep_name, {
-        set: (value) => {
-            Object.assign(modules, value || {})
-        }
-    });
+    // avoids "Cannot redefine property" when a second Jeli app runs on the same page
+    if (!Object.getOwnPropertyDescriptor(self, dep_name)) {
+        OD(self, dep_name, {
+            set: (value) => {
+                Object.assign(modules, value || {})
+            }
+        });
+    }
 
     function __required(moduleId, property) {
         'use strict';
         if (!installedModules.hasOwnProperty(moduleId)){
-            /** create a new ref **/ 
+            /** create a new ref **/
             installedModules[moduleId] = { exports: true };
             try {
                 modules[moduleId](installedModules[moduleId], installedModules[moduleId], __required, self);
-            } catch (e) {}
+            } catch (e) {
+                delete installedModules[moduleId];
+                throw e;
+            }
+        }
+        
+        if (installedModules[moduleId].exports && installedModules[moduleId].exports.__esModule){
+            return property ? installedModules[moduleId].exports[property] : installedModules[moduleId].exports;
         }
 
         return property ? installedModules[moduleId][property] : installedModules[moduleId];
@@ -58,13 +68,18 @@
         } else {
             pendingLazyLoad.push(mid);
             const scriptElement = loadScript(mid);
-            scriptElement.onreadystatechange = scriptElement.onload = scriptElement.onerror  = function() {
+            scriptElement.onreadystatechange = scriptElement.onload = function() {
                 const state = scriptElement.readyState;
                 if ((!state || /loaded|complete/.test(state))) {
                     resolve(__required(mid));
                     pendingLazyLoad.splice(pendingLazyLoad.indexOf(mid), 1);
+                    scriptElement.parentNode.removeChild(scriptElement);
                 }
+            };
+            scriptElement.onerror = function() {
+                pendingLazyLoad.splice(pendingLazyLoad.indexOf(mid), 1);
                 scriptElement.parentNode.removeChild(scriptElement);
+                reject(new Error('Failed to load lazy module: ' + mid));
             };
         }
     });

@@ -40,6 +40,7 @@ class GeneratorInstance {
             name: this.fnName,
             filename: `${this.name}.${this.type}`,
             type: this.type,
+            typepascal: jeliUtils.pascalCase(this.type),
             prefix: this.options.projectConfig.prefix
         }, ...args);
     }
@@ -48,6 +49,17 @@ class GeneratorInstance {
         if (fs.existsSync(`${this.options.targetDir}/${this.name}.${this.type}.js`)) {
             throw Error(`${this.name} already exisits.`);
         }
+    }
+
+    /**
+     * generates a companion .spec.js file next to the component source
+     * skipped when --skip-tests is passed on `jeli new`
+     */
+    writeSpec(dirPath) {
+        if (this.options.skipTests) return;
+        const specTemplatePath = getTemplatePath('generators/spec.gs');
+        updateContent(specTemplatePath, this.replacerData, `${dirPath}.spec.js`);
+        this.output.push('.spec.js');
     }
 
     async element(additionalConfig = {}) {
@@ -63,6 +75,7 @@ class GeneratorInstance {
         fs.writeFileSync(`${dirPath}.html`, this.replacerData.viewContent);
         fs.writeFileSync(`${dirPath}.${this.replacerData.styling}`, '');
         this.output = ['.js', '.html', `.${this.replacerData.styling}`];
+        this.writeSpec(dirPath);
         this.addModuleParams('Element', 'element');
     }
 
@@ -71,17 +84,21 @@ class GeneratorInstance {
         this.setReplacerContent({
             selector: `${jeliUtils.camelCase(this.name)}`
         });
-        updateContent(this.templatePath, this.replacerData, `${this.dir}/${this.replacerData.filename}.js`);
+        const dirPath = `${this.dir}/${this.replacerData.filename}`;
+        updateContent(this.templatePath, this.replacerData, `${dirPath}.js`);
         this.output = ['.js'];
+        this.writeSpec(dirPath);
         this.addModuleParams('Directive', 'directive');
     }
 
     async service() {
         fs.ensureDirSync(this.dir);
         this.setReplacerContent();
-        updateContent(this.templatePath, this.replacerData, `${this.dir}/${this.replacerData.filename}.js`);
+        const dirPath = `${this.dir}/${this.replacerData.filename}`;
+        updateContent(this.templatePath, this.replacerData, `${dirPath}.js`);
         this.addModuleParams('Service', 'service');
         this.output = ['.js'];
+        this.writeSpec(dirPath);
     }
 
     async pipe() {
@@ -133,17 +150,19 @@ class GeneratorInstance {
     }
 
     /**
-     * 
-     * @param {*} components 
-     * @param {*} targetDir 
-     * @param {*} projectConfig 
+     *
+     * @param {*} components
+     * @param {*} targetDir
+     * @param {*} projectConfig
+     * @param {*} generatorOptions
      */
-    static addComponents = async (components, targetDir, projectConfig) => {
+    static addComponents = async (components, targetDir, projectConfig, generatorOptions = {}) => {
         if (!components) throw new Error(`Invalid generator schema, please try again`);
         const generators = new GeneratorInstance(null, {
             targetDir,
             projectConfig,
-            name: projectConfig.fnname
+            name: projectConfig.fnname,
+            skipTests: generatorOptions.skipTests
         });
 
         components.forEach(config => {

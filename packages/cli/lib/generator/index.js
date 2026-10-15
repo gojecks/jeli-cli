@@ -54,7 +54,7 @@ async function ComponentGenerator(componentType, pathName, options) {
             }
             return -1;
         }).map(ctype => ({type: supportedTypes[ctype]}));
-        await GeneratorInstance.addComponents(schema, targetDir, projectConfig);
+        await GeneratorInstance.addComponents(schema, targetDir, projectConfig, { skipTests: options.skipTests });
     } catch (e) {
         throw e;
     }

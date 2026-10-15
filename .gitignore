@@ -4,3 +4,4 @@ packages/@jeli/**/dist
 *.lock
 __TEST__/
 .env
+CLAUDE.local.md

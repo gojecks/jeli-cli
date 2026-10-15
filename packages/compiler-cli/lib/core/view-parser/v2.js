@@ -158,6 +158,8 @@ class ViewParser extends BaseViewParser {
                 if(!ignoreCompilation){
                     if (elementEntry.isc) this._validateCustomElementAndThrowError(elementEntry, output);
                     this.attachViewChildToAst(elementEntry, output);
+                    // compiledBindings: see the matching call/comment in v1.js
+                    this.compileEventAssignments(elementEntry, output);
                     if (elementEntry.structuralDirective) {
                         // remove the directives prop
                         if (helper.is(elementEntry.tag, 'j-place')) {

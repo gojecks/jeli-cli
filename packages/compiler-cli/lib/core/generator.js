@@ -4,6 +4,7 @@ const viewParser = require('./view-parser/v1.js');
 const aotCompiler = require('./compilers/aot');
 const jitCompiler = require('./compilers/jit');
 const outputGenerator = require('./output');
+const { getScopeId } = require('./output-mapper');
 const { attachViewSelectorProviders } = require('./view.provider');
 const { ckeyWords } = require('../utils/keywords');
 const annotationProps = [ckeyWords.NAME, ckeyWords.SELECTOR, ckeyWords.EXPORTAS, ckeyWords.MODULE];
@@ -113,11 +114,19 @@ class Generator {
                 let template = ctor.template;
                 let styleUrl = ctor.styleUrl;
                 const style = ctor.style;
+                // output.js's own style scoping (parseStyle -> scopePlugin) always scopes by
+                // ctor.selector regardless of asNative, so the html-side attribute must match -
+                // an asNative exclusion here left compiled styles targeting an attribute the
+                // element never gets stamped with, silently matching nothing
+                if (ctor.selector) {
+                    ctor.scopeId = getScopeId(ctor.selector);
+                }
+
                 if (styleUrl) {
                     styleUrl = loader.joinFilePath(filePath, '..', styleUrl);
                     compilerObject.output.styles[styleUrl] = filePath;
                 }
-
+                
                 // style parser
                 if (style || styleUrl) {
                     await outputGenerator.pushStyle({
@@ -125,10 +134,11 @@ class Generator {
                         selector: ctor.selector,
                         style,
                         styleUrl,
-                        elementFilePath: filePath
+                        elementFilePath: filePath,
+                        sassEnabled: compilerObject.buildOptions.sass
                     }, null, compilerObject.buildOptions.assetURL);
                 }
-
+                
                 if (ctor.templateUrl) {
                     // this is used when having multiple templates defined for a one element
                     // usefull when template file is growing large
@@ -210,6 +220,7 @@ class Generator {
             for (const filePath in compilerObject.output.modules) {
                 await scriptGeneratorParser(filePath);
             }
+
             // recompile all pending scripts
             if (pendingCompilation.length) {
                 while (pendingCompilation.length) {
@@ -244,9 +255,8 @@ class Generator {
                 }
             }
         }
-
+        
         await compileModules();
-
         /**
          * save files
          */

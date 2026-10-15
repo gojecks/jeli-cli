@@ -39,9 +39,9 @@ async function processFile(componentsResolver, filePath, parentPath, lazyLoadMod
         if (componentsResolver.isLazyLoadedModule(filePath) && !fileDefinition.lazyLoadModulePath) {
             loader.spinner.fail('');
             const annot = componentsResolver.getOutputModule(filePath);
-            helper.abort(`\n Error compiling lazyloaded module exported in ${helper.colors.yellow(filePath)}, reasons due to importation of (${helper.colors.yellow(annot.annotations[0].fn)}) in other modules.`);
+            throw new Error(`\n Error compiling lazyloaded module exported in ${helper.colors.yellow(filePath)}, reasons due to importation of (${helper.colors.yellow(annot.annotations[0].fn)}) in other modules.`);
         }
-
+        
         return await validateImports(importedItem, fileDefinition.exports, filePath, parentPath);
     }
 
@@ -76,7 +76,9 @@ async function processFile(componentsResolver, filePath, parentPath, lazyLoadMod
             componentsResolver.pushToExports(fileAst.exports);
         }
 
-        await validateImports(importedItem, fileAst.exports, filePath, parentPath);
+        if (!source.raw && source.type !== 'script') {
+            await validateImports(importedItem, fileAst.exports, filePath, parentPath);
+        }
         // process importedFiles
         for (const impItem of fileAst.imports) {
             await importFile(componentsResolver, impItem, filePath, isExternalModule, lazyLoadModulePath);
@@ -148,16 +150,14 @@ async function importFile(componentsResolver, importItem, parentPath, isExternal
             if (!isLib) {
                 await processFile(componentsResolver, resolvedDep.source, parentPath, lazyLoadModulePath, true, importItem);
             } else {
-                const depMetaData = getMetaData(importItem.source);
-                await validateImports(importItem, (depMetaData || {}).exports, importItem.source, parentPath);
+                await validateImports(importItem, null, importItem.source, parentPath);
             }
 
             addAbsolutePath(importItem, resolvedDep.source, isLib);
         }
     } catch (exception) {
         helper.console.error('compilation stopped');
-        helper.abort(`unable to resolve dependency ${importItem.source} -> ${parentPath}\n Reasons: ${exception.message || exception}`);
-
+        throw new Error(`unable to resolve dependency ${importItem.source} -> ${parentPath}\n Reasons: ${exception.message || exception}`);
     }
 }
 
@@ -200,29 +200,21 @@ function extractRequired(componentsResolver, source, filePath) {
 
 /**
  * 
- * @param {*} importedItem 
+ * @param {*} importItem 
  * @param {*} exported 
  */
-async function validateImports(importedItem, exported = [], filePath, parentPath) {
-    exported = exported.map(item => item.exported);
-    const invalidImport = hasInvalidImport(importedItem, exported);
-    if (invalidImport && invalidImport.length) {
-        loader.spinner.fail('');
-        helper.console.error(`\n no exported name(s) ${helper.colors.yellow(invalidImport.map(item => item.imported).join(' , '))} in ${helper.colors.yellow(filePath)} imported in ${helper.colors.yellow(parentPath)}\n`);
+async function validateImports(importItem, exported = [], filePath, parentPath) {
+    if (!importItem || importItem.default || importItem.nameSpace || !importItem.specifiers.length) return false;
+    const depMetaData = getMetaData(importItem.source);
+    if (!depMetaData || depMetaData.sourceType !== 'script') {
+        exported = (depMetaData ? depMetaData.exports : exported).map(item => item.exported);
+        const invalidImport = importItem.specifiers.filter(item => !exported.includes(item.imported));
+        if (invalidImport.length) {
+            loader.spinner.fail('');
+            helper.console.error(`\n no exported name(s) ${helper.colors.yellow(invalidImport.map(item => item.imported).join(' , '))} in ${helper.colors.yellow(filePath)} imported in ${helper.colors.yellow(parentPath)}\n`);
+        }
     }
 }
-
-
-/**
- * 
- * @param {*} importItem 
- * @param {*} exportedItem 
- */
-function hasInvalidImport(importItem, exportedItem) {
-    if (!importItem || importItem.default || importItem.nameSpace || !importItem.specifiers.length) return false;
-    return importItem.specifiers.filter(item => !exportedItem.includes(item.imported));
-}
-
 
 exports.loadSource = (filePath, componentsResolver, fileAst, isEntry) => {
     const source = loader.readFile(filePath, false, false, componentsResolver.compilerObject.buildOptions.replace);
@@ -250,8 +242,8 @@ exports.compiler = async function (componentsResolver) {
  * @param {*} changes 
  */
 exports.singleCompiler = async (componentsResolver, changes) => {
-    // check if file was previouslyy compiled 
-    const components = ['Directive', 'Element', 'Pipe', 'jModule'];
+    // check if file was previously compiled 
+    const components = ['Directive', 'Element', 'Pipe', 'Service', 'jModule'];
     const { moduleName, lazyLoadModulePath } = componentsResolver.cleanFileEntry(changes.filePath, components)
     await processFile(componentsResolver, changes.filePath, null, lazyLoadModulePath);
     componentsResolver.updateAnnotation(changes.filePath, moduleName, components);
