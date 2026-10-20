@@ -99,6 +99,9 @@ async function processFile(componentsResolver, filePath, parentPath, lazyLoadMod
             componentsResolver.addOutPutEntry(filePath, outputAst);
         }
     } catch (err) {
+        // a failed file must stay recompilable once the error is fixed
+        if (inProgress.includes(filePath)) inProgress.splice(inProgress.indexOf(filePath), 1);
+        if (!source) delete componentsResolver.compilerObject.files[filePath];
         loader.spinner.fail('');
         helper.console.error(`\nError while compiling ${helper.colors.yellow(filePath)} ${parentPath ? ' imported in ' + helper.colors.yellow(parentPath) : ''}`);
         throw err;

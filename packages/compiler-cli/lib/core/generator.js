@@ -239,10 +239,12 @@ class Generator {
              * @param {*} filePath 
              */
             async function scriptGeneratorParser(filePath) {
-                if (changes && changes.filePath && !helper.is(changes.filePath, filePath))
+                const implementation = compilerObject.output.modules[filePath];
+                // a module compiled for the first time in this pass (e.g. a new file reached through its importer) is generated too
+                if (changes && changes.filePath && !helper.is(changes.filePath, filePath) && (!implementation || implementation.generated))
                     return;
 
-                const implementation = compilerObject.output.modules[filePath];
+                if (implementation) implementation.generated = true;
                 if (implementation && implementation.annotations) {
                     for (const annotation of implementation.annotations) {
                         await annotationViewCompiler(annotation, filePath);
@@ -271,7 +273,7 @@ class Generator {
     static async generateApp(componentsResolver, name, changes) {
         try {
             if (changes && changes.isStyles) {
-                outputGenerator.styleChanges(componentsResolver.compilerObject, changes);
+                await outputGenerator.styleChanges(componentsResolver.compilerObject, changes);
             } else {
                 await this.CoreGenerator(componentsResolver, name, changes);
             }

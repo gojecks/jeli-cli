@@ -6,6 +6,8 @@ const uglify = require('uglify-js');
 const { getIndex, getScopeId } = require('./output-mapper');
 const symbol = "ϕ";
 const cssFileHolder = new Map();
+// set when element css changes during a watch rebuild, so styles.js is rewritten only when needed
+let cssChanged = false;
 const autoprefixer = require('autoprefixer')
 const postcss = require('postcss')
 const postcssNested = require('postcss-nested');
@@ -219,9 +221,15 @@ class OutputGenerator {
             }
 
             await this.writeLazyLoadModules(compilerObject, isProdBuild);
+            const bundled = compilerObject.buildOptions && compilerObject.buildOptions.bundleStyles;
+            if (changes && cssChanged && !bundled) {
+                cssChanged = false;
+                await this.writeCss(compilerObject.options, compilerObject.buildOptions.assetURL, false, compilerObject.buildOptions.sass);
+            }
         }
 
         if (!changes) {
+            cssChanged = false;
             await this.copyFiles(compilerObject);
             if (!(compilerObject.buildOptions && compilerObject.buildOptions.bundleStyles)) {
                 await this.writeCss(compilerObject.options, compilerObject.buildOptions.assetURL, false, compilerObject.buildOptions.sass);
@@ -274,7 +282,8 @@ class OutputGenerator {
         for (const filePath of filePaths) {
             req = compilerObject.output.modules[filePath];
             if (req && !req.isLazyLoaded) {
-                const allowBuild = (!fileChanged || (fileChanged && (helper.is(fileChanged, filePath) || helper.is(fileChanged, req.within))));
+                // an array source was never built (e.g. a new file compiled through its importer)
+                const allowBuild = (!fileChanged || Array.isArray(req.source) || helper.is(fileChanged, filePath) || helper.is(fileChanged, req.within));
                 const sourceCode = await generateModuleDeps(filePath, allowBuild);
                 files.push(`${getIndex(filePath)} : ${sourceCode}`);
             }
@@ -321,6 +330,8 @@ class OutputGenerator {
         if (append) {
             append.push(result);
         } else {
+            const previous = cssFileHolder.get(config.elementFilePath);
+            if (!previous || previous.result !== result) cssChanged = true;
             cssFileHolder.set(config.elementFilePath, { result, config });
         }
     }
@@ -332,12 +343,18 @@ class OutputGenerator {
      */
     static async styleChanges(compilerObject, changes) {
         const elementFilePath = compilerObject.output.styles[changes.filePath];
-        const existingContent = cssFileHolder.get(elementFilePath);
-        this.pushStyle(existingContent ? existingContent.config : {
-            styleUrl: changes.filePath,
-            elementFilePath,
-            sassEnabled: compilerObject.buildOptions.sass
-        }, null, compilerObject.buildOptions.assetURL);
+        if (!fs.existsSync(changes.filePath)) {
+            // deleted stylesheet: drop its css instead of re-reading it
+            cssFileHolder.delete(elementFilePath);
+            delete compilerObject.output.styles[changes.filePath];
+        } else {
+            const existingContent = cssFileHolder.get(elementFilePath);
+            await this.pushStyle(existingContent ? existingContent.config : {
+                styleUrl: changes.filePath,
+                elementFilePath,
+                sassEnabled: compilerObject.buildOptions.sass
+            }, null, compilerObject.buildOptions.assetURL);
+        }
 
         if (compilerObject.buildOptions && compilerObject.buildOptions.bundleStyles) {
             // styles live inside main.js for this project - a styles-only change still
@@ -345,7 +362,13 @@ class OutputGenerator {
             return this.outputApplicationFiles(compilerObject, null);
         }
 
+        cssChanged = false;
         await this.writeCss(compilerObject.options, compilerObject.buildOptions.assetURL, false, compilerObject.buildOptions.sass);
+    }
+
+    // a deleted element's css must leave styles.js too
+    static dropElementStyles(elementFilePath) {
+        if (cssFileHolder.delete(elementFilePath)) cssChanged = true;
     }
 
     /**
@@ -928,6 +951,7 @@ class OutputGenerator {
      */
     static async writeLazyLoadModules(compilerObject, isProd) {
         const templateParser = this.getTemplate('lazyload');
+        const manifest = {};
         while (compilerObject.output.lazyLoads.length) {
             const modulePath = compilerObject.output.lazyLoads.pop();
             const output = [];
@@ -946,10 +970,27 @@ class OutputGenerator {
                 this._writeModuleStream(compilerObject, impExp.ns, modules, true);
                 const sourceCode = this.writeGlobalImports(`{\n${modules.join(',\n')}\n}`, defaultModuleImports.$);
                 await this.outputJSFiles(fileName, templateParser({ sourceCode }), isProd);
+                manifest[path.relative(compilerObject.options.sourceRoot, modulePath).split(path.sep).join('/')] = path.basename(fileName);
             } catch (e) {
                 console.log(`[OutPut] Error generating chunk module ${modulePath}, please try again`);
             }
         }
+        this.writeChunkManifest(compilerObject, manifest);
+    }
+
+    // buildOptions.chunkManifest (true or a file name): which chunk file holds which lazy module, readable after obfuscation
+    static writeChunkManifest(compilerObject, manifest) {
+        const option = compilerObject.buildOptions && compilerObject.buildOptions.chunkManifest;
+        if (!option || !compilerObject.options.output.folder) return;
+        const filePath = `${compilerObject.options.output.folder}${typeof option === 'string' ? option : 'chunks.json'}`;
+        // watch rebuilds only rewrite the changed chunks, so keep the entries already there
+        let existing = {};
+        try {
+            existing = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        } catch (e) { }
+        const merged = Object.assign(existing, manifest);
+        const sorted = Object.keys(merged).sort().reduce((out, key) => (out[key] = merged[key], out), {});
+        fs.writeFileSync(filePath, JSON.stringify(sorted, null, 2) + '\n');
     }
 
     /**
