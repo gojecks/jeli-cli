@@ -60,6 +60,12 @@ Build options worth knowing:
   shipping them for the runtime to interpret.
 - **`sass`** runs `.scss`/`.sass` through Dart Sass (installed on demand). Without it, styles go through PostCSS
   with nesting only, so Sass variables, maps and control flow fail to parse.
+- **`i18n`** writes `i18n.json` to the output folder: every text key the build finds (`'key' | t:'Default'` in
+  templates, `I18n.t('key', 'Default')` and `I18n.define({...})` in scripts) with its default text and the files
+  using it. `true`, or `{ "file": "i18n.json", "exclude": ["app/admin"] }` (path prefixes under `sourceRoot`).
+- **`chunkManifest`** writes `chunks.json`, mapping each lazy module to its chunk file (`true` or a file name).
+- **`warnings`** (on by default) prints `path:line [rule]` warnings for template patterns that compile without an
+  error but render wrong; `false` turns them off.
 - **`resolve.alias`** maps imports to local builds, e.g. sibling repos' `dist/`.
 
 ## Template syntax highlights
@@ -68,6 +74,7 @@ Build options worth knowing:
 - Control-flow blocks: `@if (cond) { … } @else { … }`, `@for (item of items) { … }`,
   `@switch (value) { @case (x) { … } @switchDefault { … } }`.
 - Interpolation: `${expr}` updates; `${:expr}` and `attr-x="expr"` bind once.
+- Pipes: `${value | pipe:arg1;arg2}` — arguments are separated by `;`, and an expression ends at the first `}`.
 - Slots: `<j-place>` with `fallback="…"` content.
 
 ## Development (this repo)

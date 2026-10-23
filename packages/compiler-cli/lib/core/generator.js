@@ -1,3 +1,5 @@
+const templateWarnings = require('./template-warnings');
+const i18nKeys = require('./i18n-keys');
 const helper = require('@jeli/cli/lib/utils');
 const loader = require('./loader');
 const viewParser = require('./view-parser/v1.js');
@@ -139,6 +141,17 @@ class Generator {
                     }, null, compilerObject.buildOptions.assetURL);
                 }
                 
+                // the raw file, so line numbers match (the loaded content is minified)
+                const lintTemplate = (source, sourcePath) => {
+                    const warn = compilerObject.buildOptions.warnings !== false;
+                    if (!warn && !i18nKeys.option(compilerObject)) return;
+                    let raw = source || '';
+                    try {
+                        if (sourcePath !== filePath) raw = require('fs').readFileSync(sourcePath, 'utf8');
+                    } catch (e) { }
+                    if (warn) templateWarnings.report(templateWarnings.checkTemplate(raw), sourcePath);
+                    if (sourcePath !== filePath) i18nKeys.collect(compilerObject, sourcePath, raw, true);
+                };
                 if (ctor.templateUrl) {
                     // this is used when having multiple templates defined for a one element
                     // usefull when template file is growing large
@@ -147,13 +160,18 @@ class Generator {
                         template = ctor.templateUrl.map(tPath => {
                             tPath = loader.joinFilePath(filePath, '..', tPath);
                             compilerObject.output.templates[tPath] = filePath;
-                            return loader.templateContentLoader(tPath)
+                            const content = loader.templateContentLoader(tPath);
+                            lintTemplate(content, tPath);
+                            return content;
                         }).join('\n');
                     } else {
                         templatePath = loader.joinFilePath(filePath, '..', ctor.templateUrl)
                         compilerObject.output.templates[templatePath] = filePath;
                         template = loader.templateContentLoader(templatePath)
+                        lintTemplate(template, templatePath);
                     }
+                } else if (typeof template === 'string') {
+                    lintTemplate(template, filePath);
                 }
 
                 if (template) {
@@ -245,6 +263,7 @@ class Generator {
                     return;
 
                 if (implementation) implementation.generated = true;
+                i18nKeys.collect(compilerObject, filePath);
                 if (implementation && implementation.annotations) {
                     for (const annotation of implementation.annotations) {
                         await annotationViewCompiler(annotation, filePath);
@@ -268,6 +287,7 @@ class Generator {
         } else {
             await outputGenerator.outputApplicationFiles(compilerObject, changes);
         }
+        i18nKeys.write(compilerObject);
     }
 
     static async generateApp(componentsResolver, name, changes) {

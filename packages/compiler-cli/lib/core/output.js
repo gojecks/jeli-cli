@@ -18,6 +18,27 @@ const rules = require('./rules');
 // not the invalid ".overlay:after[_jeli-x]" which browsers silently drop the whole rule for).
 const TRAILING_PSEUDO_ELEMENT = /(::[a-zA-Z-]+(?:\([^)]*\))?|:(?:before|after|first-line|first-letter))$/i;
 
+// ":global(x)" -> "x", matching parentheses inside x (e.g. :global(.a:not(.b) > ul))
+function unwrapGlobal(selector) {
+    let out = '';
+    let i = 0;
+    while (i < selector.length) {
+        const start = selector.indexOf(':global(', i);
+        if (start < 0) return out + selector.slice(i);
+        out += selector.slice(i, start);
+        let depth = 1;
+        let j = start + ':global('.length;
+        while (j < selector.length && depth > 0) {
+            if (selector[j] === '(') depth++;
+            else if (selector[j] === ')') depth--;
+            j++;
+        }
+        out += selector.slice(start + ':global('.length, depth === 0 ? j - 1 : j);
+        i = j;
+    }
+    return out;
+}
+
 function scopePlugin(scopeId) {
     return {
         postcssPlugin: 'jeli-scope',
@@ -29,7 +50,7 @@ function scopePlugin(scopeId) {
                         const trimmed = sel.trim();
                         if (trimmed === ':host') return `[${scopeId}]`;
                         if (trimmed.includes(':global(')) {
-                            return trimmed.replace(/:global\(([^)]*)\)/g, '$1').trim();
+                            return unwrapGlobal(trimmed).trim();
                         }
                         const pseudoElementMatch = sel.match(TRAILING_PSEUDO_ELEMENT);
                         if (pseudoElementMatch) {
@@ -1080,3 +1101,4 @@ class OutputGenerator {
 
 
 module.exports = OutputGenerator;
+module.exports.unwrapGlobal = unwrapGlobal;
